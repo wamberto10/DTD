@@ -43,12 +43,12 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 
 1. Na aba **Esquadrão**, escolha até 5 heróis para levar à batalha. Só eles aparecem na Defesa e podem ser posicionados. Heróis novos entram sozinhos enquanto houver vaga.
 2. Na Defesa, selecione um herói do esquadrão e clique em um círculo no mapa. Você pode posicionar várias torres do mesmo herói.
-3. Clique em **Iniciar onda**. Os cultivadores atacam automaticamente os inimigos em seu alcance.
+3. Clique em **Iniciar onda**. Os cultivadores atacam automaticamente os inimigos em seu alcance. Depois da primeira, cada onda começa sozinha 5 segundos após a anterior; **Começar agora** pula a espera.
 4. Cada eliminação concede Qi. Clique em uma torre para ver seu alcance e melhorá-la até o nível 5. Dispensar uma torre recupera 70% do Qi investido.
 5. Proteja o local da fase durante as cinco ondas, incluindo o chefe final. Uma vitória libera a próxima fase e concede cristais.
 6. Visite **Recrutamento** para invocar heróis e **Meus heróis** para conferir a coleção e elevar as estrelas dos heróis com os fragmentos.
 
-**Espaço** inicia ou pausa a onda, **2** alterna a velocidade e **Esc** fecha detalhes. A partida pausa ao sair da defesa ou ocultar a aba.
+**Espaço** inicia a onda (ou pula a espera), **P** ou o botão ao lado da velocidade pausa a partida, **2** alterna a velocidade e **Esc** fecha detalhes. A pausa também para a contagem entre ondas. A partida pausa sozinha ao sair da defesa ou ocultar a aba.
 
 ## Progressão e recrutamento
 

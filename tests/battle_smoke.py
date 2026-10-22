@@ -38,12 +38,18 @@ with sync_playwright() as p:
     before = page.locator('#enemy-layer').inner_html()
     page.clock.run_for(2000)
     assert page.locator('#enemy-layer').inner_html() == before, 'Paused enemies must not move'
-    page.locator('[data-action="pause"]').click()
+    page.locator('#pause-overlay [data-action="pause"]').click()
 
     for wave in range(1, 6):
-        page.clock.run_for(20000)
+        # Waves chain by themselves: wait for the break before the next one (or the victory).
+        for _ in range(120):
+            page.clock.run_for(1000)
+            status = page.locator('#battle-status-text').inner_text()
+            if status.startswith('Próxima onda') or status == 'Vitória':
+                break
         if wave < 5:
-            expect(page.locator('#battle-status-text')).to_have_text('Entre ondas')
+            expect(page.locator('#battle-status-text')).to_contain_text('Próxima onda em')
+            expect(page.locator('#wave-countdown')).to_be_visible()
             # Spend earned Qi through the real improvement UI between waves.
             for tower in page.locator('.map-tower').all():
                 tower.click()

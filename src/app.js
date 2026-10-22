@@ -1,4 +1,4 @@
-import { GameEngine, MAP } from './engine.js';
+import { GameEngine, MAP, WAVE_BREAK_SECONDS } from './engine.js';
 import { HEROES, RARITIES, STAGES, WORLD, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from './data.js';
 import { loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad } from './profile.js';
 import { FRAGMENTS_PER_COPY, STARS_PER_TIER, nextStarCost, starBonusPercent, starTier, withStars } from './stars.js';
@@ -31,6 +31,10 @@ const squadHeroes = () => profile.squad.filter(heroById).map(fighter);
 // Keeps the hero selected for placement inside the squad.
 const keepSelectionInSquad = () => { if (!profile.squad.includes(ui.selectedHero)) ui.selectedHero = profile.squad[0]; };
 const rarityRank = hero => RARITIES.findIndex(r => r.id === hero.rarity);
+// Whole seconds left before the next wave starts by itself, or null when no countdown is running.
+const countdown = () => engine.state.status === 'preparing' && engine.state.nextWaveIn !== null ? Math.ceil(engine.state.nextWaveIn) : null;
+// A battle is under way during a wave and during the countdown between waves: that is when pausing makes sense.
+const inBattle = () => engine.state.status === 'running' || countdown() !== null;
 // Five slots: stars of the current group in its colour, the rest still showing the previous group's colour.
 const starRow = (stars, size = 14, next = false) => {
   const tier = starTier(stars);
@@ -78,7 +82,7 @@ function toast(message) {
 
 function onEngineEvent(event) {
   if (event.type === 'kill') sound('kill');
-  if (event.type === 'waveComplete') toast(`Onda ${engine.state.wave} concluída. Prepare sua defesa.`);
+  if (event.type === 'waveComplete' && engine.state.status === 'preparing') toast(`Onda ${engine.state.wave} concluída. A próxima começa em ${WAVE_BREAK_SECONDS} segundos.`);
   if (event.type === 'victory') {
     const result = grantVictory(profile, ui.stage);
     profile = result.profile; ui.reward = result; persist(); sound('victory');
@@ -116,9 +120,9 @@ function renderDefense() {
   const stage = stageInfo();
   return `${pageHeading('PROTEJA O SEU LEGADO', 'O caminho começa aqui<span>.</span>', 'Reúna seus cultivadores. Canalize seu Qi. Defenda o caminho do Dao.', `<button class="subtle-button" data-action="stages">${icon('flag', 16)} Selecionar fase ${icon('chevronRight', 14)}</button>`)}
     <div class="battle-layout"><section class="battle-section" aria-label="Campo de batalha">
-    <div class="battle-toolbar"><div class="map-title"><span class="map-status-dot"></span><strong>${escapeText(stage.name)}</strong><span class="tiny-tag">${stage.difficulty.toUpperCase()}</span></div><div class="toolbar-controls"><button class="icon-button" data-action="restart" title="Reiniciar fase" aria-label="Reiniciar fase">${icon('refresh', 16)}</button><span></span><button class="speed-button ${ui.speed === 2 ? 'fast' : ''}" data-action="speed" title="Alternar velocidade">${icon('speed', 16)}<span id="speed-text">${ui.speed}×</span></button></div></div>
+    <div class="battle-toolbar"><div class="map-title"><span class="map-status-dot"></span><strong>${escapeText(stage.name)}</strong><span class="tiny-tag">${stage.difficulty.toUpperCase()}</span></div><div class="toolbar-controls"><button class="icon-button" data-action="restart" title="Reiniciar fase" aria-label="Reiniciar fase">${icon('refresh', 16)}</button><span></span><button class="icon-button pause-button ${ui.paused ? 'active' : ''}" id="pause-button" data-action="pause" title="Pausar (P)" aria-label="Pausar partida" ${inBattle() ? '' : 'disabled'}>${icon(ui.paused ? 'play' : 'pause', 16)}</button><button class="speed-button ${ui.speed === 2 ? 'fast' : ''}" data-action="speed" title="Alternar velocidade (2)">${icon('speed', 16)}<span id="speed-text">${ui.speed}×</span></button></div></div>
     <div class="map-container ${hasPaintedMap(ui.stage) ? 'painted' : ''}"><svg class="battle-map ${hasPaintedMap(ui.stage) ? 'painted-map' : ''}" viewBox="0 0 ${MAP.width} ${MAP.height}" role="group" aria-label="${escapeText(stage.name)}: caminho dos inimigos e nove posições para torres">${renderTerrain(ui.stage)}<g id="range-layer"></g><g id="pad-layer"></g><g id="tower-layer"></g><g id="enemy-layer"></g><g id="projectile-layer"></g></svg>
-    <div class="map-hud"><span class="hud-pill lives">${icon('heart', 16)}<b id="hud-lives">20</b><small>VIDAS</small></span><span class="hud-pill qi">${icon('qi', 17)}<b id="hud-qi">180</b><small>QI</small></span></div>
+    <div class="map-hud"><span id="wave-countdown" class="hud-pill wave-countdown hidden" aria-live="polite"></span><span class="hud-pill lives">${icon('heart', 16)}<b id="hud-lives">20</b><small>VIDAS</small></span><span class="hud-pill qi">${icon('qi', 17)}<b id="hud-qi">180</b><small>QI</small></span></div>
     <div class="map-level"><span>${WORLD.name.toUpperCase()} · ${String(ui.stage).padStart(2, '0')} · ${stage.realm.toUpperCase()}</span><strong>${escapeText(stage.name)}</strong><small>${escapeText(stage.subtitle)}.</small></div>
     <div class="map-compass"><span>N</span><svg viewBox="0 0 32 32"><path d="m16 2 5 14-5 14-5-14Z" fill="#dccba0"/><path d="m16 16 14 0-14 5L2 16Z" fill="#b4b28d" opacity=".4"/></svg></div>
     <div id="pause-overlay" class="pause-overlay ${ui.paused ? '' : 'hidden'}"><span>${icon('pause', 28)}</span><h3>A jornada pode esperar.</h3><button class="primary-button" data-action="pause">Continuar partida</button></div>
@@ -168,7 +172,15 @@ function renderCommandPanel() {
   const stage = stageInfo();
   const bossNext = s.wave === 4;
   const preview = enemyArt(ui.stage, bossNext ? 'boss' : 'normal');
-  return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">${s.status === 'running' ? 'DEFESA EM ANDAMENTO' : s.status === 'victory' ? 'TERRITÓRIO PROTEGIDO' : s.status === 'defeat' ? 'PORTAL DESTRUÍDO' : 'ANTES DA BATALHA'}</span><span class="small-orbit">${icon('swords', 16)}</span></div><h2>${s.status === 'victory' ? 'O território está a salvo.' : s.status === 'defeat' ? 'Um novo começo.' : s.status === 'running' ? 'Mantenha a posição.' : s.wave > 0 ? 'Respire. Evolua.' : 'Prepare sua defesa.'}</h2><p class="command-description">${s.status === 'running' ? 'Seus cultivadores atacam automaticamente. Use o Qi para fortalecer suas torres.' : s.status === 'victory' ? 'Seus cristais já estão na coleção. O próximo caminho espera por você.' : s.status === 'defeat' ? 'Reposicione os heróis e tente uma nova estratégia.' : 'Posicione seus heróis ao longo do caminho antes de iniciar a próxima onda.'}</p><div class="wave-info"><span>Onda <b>${current}</b> de ${s.totalWaves}</span><span>${Math.round(s.wave / s.totalWaves * 100)}%</span></div><div class="wave-track">${Array.from({ length: s.totalWaves }, (_, i) => `<span class="${i < s.wave ? 'completed' : ''} ${i === s.wave - 1 && s.status === 'running' ? 'ongoing' : ''}"></span>`).join('')}</div><div class="enemy-preview"><div class="enemy-face ${preview ? 'painted' : ''}">${preview ? `<img src="${preview.url}" alt="">` : icon(bossNext ? 'shield' : 'sword', 23)}</div><div><strong>${escapeText(bossNext ? stage.enemies.boss : stage.enemies.normal)}</strong><span>${bossNext ? 'O chefe da fase se aproxima' : `Também: ${escapeText(stage.enemies.fast)} e ${escapeText(stage.enemies.brute)}`}</span></div></div><button class="primary-button wave-button" data-action="wave">${icon(s.status === 'running' ? (ui.paused ? 'play' : 'pause') : s.status === 'victory' ? 'flag' : s.status === 'defeat' ? 'refresh' : 'play', 16)}<span>${s.status === 'running' ? (ui.paused ? 'Continuar onda' : 'Pausar onda') : s.status === 'victory' ? 'Próxima fase' : s.status === 'defeat' ? 'Tentar novamente' : 'Iniciar onda'}</span>${s.status === 'preparing' ? '<kbd>ESPAÇO</kbd>' : ''}</button><p class="rail-note">${icon('qi', 12)} Elimine inimigos para acumular Qi.</p></div><div class="selected-hero-note">${icon('users', 16)}<span>Selecionado: <strong>${heroById(ui.selectedHero)?.name || 'Faxineiro'}</strong></span></div>`;
+  const cd = countdown();
+  const eyebrow = s.status === 'running' ? 'DEFESA EM ANDAMENTO' : s.status === 'victory' ? 'TERRITÓRIO PROTEGIDO' : s.status === 'defeat' ? 'DEFESA ROMPIDA' : cd !== null ? 'PRÓXIMA ONDA' : 'ANTES DA BATALHA';
+  const title = s.status === 'victory' ? 'O território está a salvo.' : s.status === 'defeat' ? 'Um novo começo.' : s.status === 'running' ? 'Mantenha a posição.' : cd !== null ? `Onda ${s.wave + 1} em ${cd}s.` : 'Prepare sua defesa.';
+  const description = s.status === 'running' ? 'Seus cultivadores atacam automaticamente. Use o Qi para fortalecer suas torres.'
+    : s.status === 'victory' ? 'Seus cristais já estão na coleção. O próximo caminho espera por você.'
+    : s.status === 'defeat' ? 'Reposicione os heróis e tente uma nova estratégia.'
+    : cd !== null ? (ui.paused ? 'Partida pausada. A contagem continua quando você voltar.' : 'As ondas seguem sozinhas. Aproveite para posicionar e melhorar seus heróis.')
+    : `Posicione seus heróis e inicie a primeira onda. Depois, cada onda começa sozinha ${WAVE_BREAK_SECONDS} segundos após a anterior.`;
+  return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">${eyebrow}</span><span class="small-orbit">${icon('swords', 16)}</span></div><h2 class="${cd !== null ? 'countdown-title' : ''}">${title}</h2><p class="command-description">${description}</p><div class="wave-info"><span>Onda <b>${current}</b> de ${s.totalWaves}</span><span>${Math.round(s.wave / s.totalWaves * 100)}%</span></div><div class="wave-track">${Array.from({ length: s.totalWaves }, (_, i) => `<span class="${i < s.wave ? 'completed' : ''} ${i === s.wave - 1 && s.status === 'running' ? 'ongoing' : ''}"></span>`).join('')}</div><div class="enemy-preview"><div class="enemy-face ${preview ? 'painted' : ''}">${preview ? `<img src="${preview.url}" alt="">` : icon(bossNext ? 'shield' : 'sword', 23)}</div><div><strong>${escapeText(bossNext ? stage.enemies.boss : stage.enemies.normal)}</strong><span>${bossNext ? 'O chefe da fase se aproxima' : `Também: ${escapeText(stage.enemies.fast)} e ${escapeText(stage.enemies.brute)}`}</span></div></div><button class="primary-button wave-button" data-action="wave">${icon(s.status === 'running' ? (ui.paused ? 'play' : 'pause') : s.status === 'victory' ? 'flag' : s.status === 'defeat' ? 'refresh' : 'play', 16)}<span>${s.status === 'running' ? (ui.paused ? 'Continuar onda' : 'Pausar onda') : s.status === 'victory' ? 'Próxima fase' : s.status === 'defeat' ? 'Tentar novamente' : cd !== null ? 'Começar agora' : 'Iniciar onda'}</span>${s.status === 'preparing' ? '<kbd>ESPAÇO</kbd>' : ''}</button><p class="rail-note">${icon('qi', 12)} Elimine inimigos para acumular Qi.</p></div><div class="selected-hero-note">${icon('users', 16)}<span>Selecionado: <strong>${heroById(ui.selectedHero)?.name || 'Faxineiro'}</strong></span></div>`;
 }
 
 function renderRecruit() {
@@ -205,15 +217,27 @@ function renderDynamic() {
 function updateHud(force = false) {
   if (ui.view !== 'defense') return;
   const s = engine.state;
-  const key = `${s.lives}-${s.qi}-${s.wave}-${s.status}-${s.kills}-${ui.selectedTower}-${ui.paused}`;
+  const cd = countdown();
+  const key = `${s.lives}-${s.qi}-${s.wave}-${s.status}-${s.kills}-${ui.selectedTower}-${ui.paused}-${cd}`;
   if (key === lastHud && !force) return;
   lastHud = key;
   document.querySelector('#hud-lives').textContent = s.lives;
   document.querySelector('#hud-qi').textContent = Math.floor(s.qi);
   document.querySelector('#kills-text').textContent = `${s.kills} inimigos derrotados`;
-  document.querySelector('#battle-status-text').textContent = s.status === 'running' ? ui.paused ? 'Pausado' : `Onda ${s.wave} em andamento` : s.status === 'victory' ? 'Vitória' : s.status === 'defeat' ? 'Derrota' : s.wave ? 'Entre ondas' : 'Preparação';
+  document.querySelector('#battle-status-text').textContent = ui.paused && inBattle() ? 'Pausado'
+    : s.status === 'running' ? `Onda ${s.wave} em andamento` : s.status === 'victory' ? 'Vitória' : s.status === 'defeat' ? 'Derrota'
+    : cd !== null ? `Próxima onda em ${cd}s` : 'Preparação';
   document.querySelector('#live-indicator').classList.toggle('running', s.status === 'running' && !ui.paused);
   document.querySelector('#pause-overlay').classList.toggle('hidden', !ui.paused);
+  const banner = document.querySelector('#wave-countdown');
+  banner.classList.toggle('hidden', cd === null || ui.paused);
+  if (cd !== null) banner.innerHTML = `${icon('speed', 14)}<small>ONDA ${s.wave + 1} EM</small><b>${cd}s</b>`;
+  const pause = document.querySelector('#pause-button');
+  pause.disabled = !inBattle();
+  pause.classList.toggle('active', ui.paused);
+  pause.innerHTML = icon(ui.paused ? 'play' : 'pause', 16);
+  pause.title = ui.paused ? 'Continuar (P)' : 'Pausar (P)';
+  pause.setAttribute('aria-label', ui.paused ? 'Continuar partida' : 'Pausar partida');
   document.querySelector('#command-panel').innerHTML = renderCommandPanel();
 }
 
@@ -274,7 +298,7 @@ function doSummon(count) {
 
 function activate(action, el) {
   sound();
-  if (action === 'navigate') { const next = el.dataset.view; if (ui.view === 'defense' && next !== 'defense' && engine.state.status === 'running') ui.paused = true; ui.view = next; render(); }
+  if (action === 'navigate') { const next = el.dataset.view; if (ui.view === 'defense' && next !== 'defense' && inBattle()) ui.paused = true; ui.view = next; render(); }
   if (action === 'sound') { ui.sound = !ui.sound; render(); if (ui.sound) sound(); }
   if (action === 'stages') showStages();
   if (action === 'choose-stage') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id)); }
@@ -309,12 +333,12 @@ function activate(action, el) {
     else { const result = engine.startWave(); if (result?.ok === false) toast(result.reason || 'Posicione uma torre primeiro.'); ui.paused = false; }
     updateHud(true);
   }
-  if (action === 'pause') { ui.paused = !ui.paused; updateHud(true); }
+  if (action === 'pause') { ui.paused = inBattle() ? !ui.paused : false; updateHud(true); }
   if (action === 'restart') showModal(`<span class="eyebrow">UM NOVO COMEÇO</span><h2 id="modal-title">Recomeçar esta fase?</h2><p class="modal-description">As torres e o Qi desta partida serão reiniciados. Sua coleção e seus cristais continuam com você.</p><button class="primary-button" data-action="retry">${icon('refresh', 16)} Recomeçar fase</button><button class="text-button" data-action="close-modal">Continuar jogando</button>`);
   if (action === 'retry') { closeModal(); resetBattle(); }
   if (action === 'close-modal') closeModal();
   if (action === 'result-next') { closeModal(); if (ui.stage < STAGES.length) resetBattle(ui.stage + 1); else showStages(); }
-  if (action === 'result-recruit') { closeModal(); ui.view = 'recruit'; if (engine.state.status === 'running') ui.paused = true; render(); }
+  if (action === 'result-recruit') { closeModal(); ui.view = 'recruit'; if (inBattle()) ui.paused = true; render(); }
   if (action === 'summon') doSummon(Number(el.dataset.count));
   if (action === 'filter') { ui.filter = el.dataset.filter; render(); }
   if (action === 'hero-detail') showHero(el.dataset.id);
@@ -340,9 +364,10 @@ document.addEventListener('keydown', event => {
   if (ui.view !== 'defense' || event.repeat) return;
   if (event.code === 'Space' && !['BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName) && !event.target.closest('[role="button"]')) { event.preventDefault(); activate('wave', document.body); }
   if (event.key === '2') activate('speed', document.body);
+  if (event.key === 'p' || event.key === 'P') activate('pause', document.body);
   if (event.key === 'Enter' && event.target.matches('[role="button"][data-action]')) activate(event.target.dataset.action, event.target);
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden && engine.state.status === 'running') { ui.paused = true; updateHud(true); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden && inBattle()) { ui.paused = true; updateHud(true); } });
 
 function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.1); lastTime = now;

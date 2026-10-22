@@ -4,6 +4,9 @@ import { DEFAULT_MAP, mapForStage, pointOnPath } from './maps.js';
 export const MAP = DEFAULT_MAP;
 export { mapForStage, pointOnPath };
 
+/** After the player starts the first wave, each next wave starts by itself after this break. */
+export const WAVE_BREAK_SECONDS = 5;
+
 /** Enemy health grows 18% per stage: the Faxineiro alone can still clear stage 12 with good play. */
 export const STAGE_STEP = 0.18;
 export const stageDifficulty = stage => 1 + (stage - 1) * STAGE_STEP;
@@ -27,6 +30,8 @@ export class GameEngine {
       wave: 0, totalWaves: 5, lives: 20, qi: 180,
       towers: [], enemies: [], projectiles: [], kills: 0, speed: 1,
       spawned: 0, waveEnemyCount: 0,
+      // Seconds until the next wave starts by itself; null while it waits for the player.
+      nextWaveIn: null,
     };
     this._nextId = 1;
     this._spawnQueue = [];
@@ -122,6 +127,7 @@ export class GameEngine {
     if (this.state.status !== 'preparing' || this.state.wave >= this.state.totalWaves) {
       return failure('Aguarde a conclusão da onda atual.');
     }
+    this.state.nextWaveIn = null;
     this.state.wave++;
     const wave = this.state.wave;
     const count = 5 + wave * 2;
@@ -147,7 +153,14 @@ export class GameEngine {
   }
 
   update(dtSeconds) {
-    if (this.state.status !== 'running' || !Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
+    if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
+    // The break between waves counts real seconds, whatever the game speed, so there is always time to prepare.
+    if (this.state.status === 'preparing' && this.state.nextWaveIn !== null) {
+      this.state.nextWaveIn = Math.max(0, this.state.nextWaveIn - Math.min(dtSeconds, 1));
+      if (this.state.nextWaveIn === 0) this.startWave();
+      return;
+    }
+    if (this.state.status !== 'running') return;
     // Tiny simulation steps keep targeting and movement consistent at any frame rate.
     let remaining = Math.min(dtSeconds, 1) * this.state.speed;
     while (remaining > 0.000001 && this.state.status === 'running') {
@@ -224,6 +237,7 @@ export class GameEngine {
     if (!this._spawnQueue.length && !state.enemies.length) {
       state.projectiles = [];
       state.status = state.wave === state.totalWaves ? 'victory' : 'preparing';
+      if (state.status === 'preparing') state.nextWaveIn = WAVE_BREAK_SECONDS;
       this._emit('waveComplete', { wave: state.wave, kills: state.kills });
       if (state.status === 'victory') this._emit('victory', { stage: state.stage, kills: state.kills });
     }

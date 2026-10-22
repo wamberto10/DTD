@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameEngine, MAP, mapForStage, pointOnPath } from '../src/engine.js';
+import { GameEngine, MAP, WAVE_BREAK_SECONDS, mapForStage, pointOnPath } from '../src/engine.js';
 import { HEROES, STAGES } from '../src/data.js';
 import { createProfile, grantVictory } from '../src/profile.js';
 import { withStars } from '../src/stars.js';
@@ -207,4 +207,39 @@ test('a new star upgrades the towers already on the map', () => {
   assert.equal(tower.damage, Math.round(withStars(cleaner, 3).damage * 1.62));
   assert.ok(tower.damage > before);
   assert.equal(game.getNextUpgradeCost(tower), Math.round(cleaner.cost * 0.75 * 1.55));
+});
+
+test('after the first wave, each next wave starts by itself after a five-second break', () => {
+  const game = new GameEngine({ heroes: [cleaner] });
+  for (const pad of ['p1', 'p2', 'p4']) game.placeTower(cleaner, pad);
+  // Nothing happens until the player starts the first wave.
+  game.update(30);
+  assert.equal(game.state.wave, 0);
+  assert.equal(game.state.nextWaveIn, null);
+  game.startWave();
+  simulateWave(game);
+  assert.equal(game.state.status, 'preparing');
+  assert.equal(game.state.nextWaveIn, WAVE_BREAK_SECONDS);
+  // The break counts real seconds: at 2× speed it still lasts five seconds.
+  game.setSpeed(2);
+  game.update(1); game.update(1); game.update(0.5);
+  assert.equal(game.state.status, 'preparing');
+  assert.equal(game.state.nextWaveIn, 2.5);
+  game.update(1); game.update(1); game.update(0.5);
+  assert.equal(game.state.status, 'running');
+  assert.equal(game.state.wave, 2);
+  assert.equal(game.state.nextWaveIn, null);
+  // The player can skip the wait.
+  simulateWave(game);
+  assert.equal(game.state.nextWaveIn, WAVE_BREAK_SECONDS);
+  assert.equal(game.startWave().ok, true);
+  assert.equal(game.state.wave, 3);
+  assert.equal(game.state.nextWaveIn, null);
+  // Waves keep chaining on their own until the stage ends, with no break after the last one.
+  for (let second = 0; second < 600 && game.state.status !== 'victory'; second++) for (let f = 0; f < 30; f++) game.update(1 / 30);
+  assert.equal(game.state.status, 'victory');
+  assert.equal(game.state.wave, 5);
+  assert.equal(game.state.nextWaveIn, null);
+  game.restart();
+  assert.equal(game.state.nextWaveIn, null);
 });

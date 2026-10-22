@@ -308,3 +308,12 @@
 .squad-flag svg{width:10px}
 .collection-info .card-stars{color:#e9c46f;font-weight:600}
 .page-heading .squad-go{width:auto;flex:0 0 auto;white-space:nowrap;padding:12px 22px}
+
+/* Automatic waves: countdown between waves and pause button */
+.pause-button.active{color:#1f2b22;background:#e9c46f;border-color:#e9c46f}
+.pause-button[disabled]{opacity:.35;cursor:not-allowed}
+.hud-pill.wave-countdown{border-color:#d9c98f;gap:8px}
+.wave-countdown small{font-size:7px;letter-spacing:1.5px;color:#d9d3ad}
+.wave-countdown b{color:#f4e6b3!important;min-width:12px;text-align:center}
+.wave-countdown.hidden{display:none}
+.countdown-title{color:#f4e6b3}
