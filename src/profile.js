@@ -1,4 +1,4 @@
-import { HEROES, RARITIES, STAGES, GACHA_COST, GACHA_TEN_COST } from './data.js';
+import { HEROES, RARITIES, STAGES, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from './data.js';
 import { FRAGMENTS_PER_COPY, STAR_SAFETY_CAP, nextStarCost } from './stars.js';
 
 export const STORAGE_KEY = 'dtd-dao-profile-v1';
@@ -15,6 +15,7 @@ export function createProfile() {
     copies: { faxineiro: 1 },
     fragments: { faxineiro: 0 },
     stars: { faxineiro: 0 },
+    squad: ['faxineiro'],
     unlockedStage: 1,
     completedStages: [],
     totalSummons: 0,
@@ -36,6 +37,11 @@ function normalizeProfile(input) {
     ? (validInteger(savedFragments[id], 1_000_000) ? savedFragments[id] : 0)
     : (copies[id] - 1) * FRAGMENTS_PER_COPY]));
   const stars = Object.fromEntries(owned.map(id => [id, validInteger(input.stars?.[id], STAR_SAFETY_CAP) ? input.stars[id] : 0]));
+  // The squad: up to five recruited heroes taken into battle. Saves from before squads start with their first five.
+  let squad = Array.isArray(input.squad)
+    ? [...new Set(input.squad.filter(id => owned.includes(id)))].slice(0, SQUAD_SIZE)
+    : owned.slice(0, SQUAD_SIZE);
+  if (!squad.length) squad = [owned[0]];
   // Progress is sequential: malformed data cannot unlock an inaccessible stage.
   const completedStages = [];
   if (Array.isArray(input.completedStages)) {
@@ -51,6 +57,7 @@ function normalizeProfile(input) {
     copies,
     fragments,
     stars,
+    squad,
     unlockedStage: Math.min(maxStage, completedStages.length + 1),
     completedStages,
     totalSummons: validInteger(input.totalSummons) ? input.totalSummons : 0,
@@ -114,6 +121,7 @@ export function summon(profile, count = 1, rng = Math.random) {
     copies: { ...current.copies },
     fragments: { ...current.fragments },
     stars: { ...current.stars },
+    squad: [...current.squad],
     totalSummons: current.totalSummons + count,
   };
   const heroes = [];
@@ -122,7 +130,11 @@ export function summon(profile, count = 1, rng = Math.random) {
     heroes.push(hero);
     // A hero you already have becomes fragments for its stars.
     if (next.owned.includes(hero.id)) next.fragments[hero.id] += FRAGMENTS_PER_COPY;
-    else { next.owned.push(hero.id); next.fragments[hero.id] = 0; next.stars[hero.id] = 0; }
+    else {
+      next.owned.push(hero.id); next.fragments[hero.id] = 0; next.stars[hero.id] = 0;
+      // New heroes join the squad while it has room.
+      if (next.squad.length < SQUAD_SIZE) next.squad.push(hero.id);
+    }
     next.copies[hero.id] = (next.copies[hero.id] ?? 0) + 1;
   }
   return { ok: true, profile: next, heroes };
@@ -169,4 +181,20 @@ export function grantVictory(profile, stageId) {
     reward,
     firstClear,
   };
+}
+
+/** Puts a recruited hero in the squad, or takes it out. The squad keeps between one and five heroes. */
+export function toggleSquad(profile, heroId) {
+  const current = normalizeProfile(profile);
+  if (!current.owned.includes(heroId)) {
+    return { ok: false, reason: 'Recrute este herói antes de levá-lo ao esquadrão.', profile: current };
+  }
+  if (current.squad.includes(heroId)) {
+    if (current.squad.length === 1) return { ok: false, reason: 'O esquadrão precisa de pelo menos um herói.', profile: current };
+    return { ok: true, added: false, profile: { ...current, squad: current.squad.filter(id => id !== heroId) } };
+  }
+  if (current.squad.length >= SQUAD_SIZE) {
+    return { ok: false, reason: `O esquadrão já tem ${SQUAD_SIZE} heróis. Tire um para abrir vaga.`, profile: current };
+  }
+  return { ok: true, added: true, profile: { ...current, squad: [...current.squad, heroId] } };
 }

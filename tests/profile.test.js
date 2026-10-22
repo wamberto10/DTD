@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HEROES, RARITIES, STAGES, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
-import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, STORAGE_KEY } from '../src/profile.js';
+import { HEROES, RARITIES, STAGES, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
+import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, STORAGE_KEY } from '../src/profile.js';
 import { FRAGMENTS_PER_COPY, STAR_BONUS, nextStarCost, starBonusPercent, starTier, withStars } from '../src/stars.js';
 
 function memoryStorage() {
@@ -202,4 +202,59 @@ test('malformed profile fields are normalized without unknown heroes or invalid 
   assert.deepEqual(restored.completedStages, []);
   assert.equal(restored.unlockedStage, 1);
   assert.equal(restored.totalSummons, 0);
+});
+
+test('new heroes join the squad while it has room for five', () => {
+  assert.deepEqual(createProfile().squad, ['faxineiro']);
+  // One hero of each rarity pool, then a seventh distinct hero: the first five fill the squad.
+  let profile = { ...createProfile(), crystals: 100_000 };
+  const ids = HEROES.filter(hero => hero.id !== 'faxineiro').map(hero => hero.id);
+  for (const id of ids.slice(0, 6)) {
+    const index = HEROES.findIndex(hero => hero.id === id);
+    const hero = HEROES[index];
+    let lower = 0;
+    for (const rarity of RARITIES) { if (rarity.id === hero.rarity) break; lower += rarity.chance; }
+    const pool = HEROES.filter(item => item.rarity === hero.rarity);
+    let calls = 0;
+    profile = summon(profile, 1, () => calls++ === 0 ? lower + 1e-9 : pool.indexOf(hero) / pool.length + 1e-9).profile;
+    assert.ok(profile.owned.includes(id));
+  }
+  assert.equal(profile.squad.length, SQUAD_SIZE);
+  assert.deepEqual(profile.squad, ['faxineiro', ...ids.slice(0, 4)]);
+  assert.ok(!profile.squad.includes(ids[5]));
+});
+
+test('the squad takes heroes in and out, keeping between one and five', () => {
+  const owned = ['faxineiro', 'aprendiz', 'lin-yue', 'han-feng', 'su-lan', 'mo-yan'];
+  const base = { ...createProfile(), owned, squad: ['faxineiro'] };
+  const original = structuredClone(base);
+  assert.equal(toggleSquad(base, 'faxineiro').ok, false, 'The last hero cannot leave.');
+  assert.equal(toggleSquad(base, 'xing-he').ok, false, 'Unrecruited heroes cannot join.');
+  let profile = base;
+  for (const id of owned.slice(1, 5)) {
+    const result = toggleSquad(profile, id);
+    assert.equal(result.ok, true);
+    assert.equal(result.added, true);
+    profile = result.profile;
+  }
+  assert.equal(profile.squad.length, SQUAD_SIZE);
+  const full = toggleSquad(profile, 'mo-yan');
+  assert.equal(full.ok, false);
+  assert.match(full.reason, /já tem 5 heróis/);
+  const out = toggleSquad(profile, 'lin-yue');
+  assert.equal(out.added, false);
+  assert.deepEqual(out.profile.squad, ['faxineiro', 'aprendiz', 'han-feng', 'su-lan']);
+  assert.equal(toggleSquad(out.profile, 'mo-yan').ok, true);
+  assert.deepEqual(base, original, 'The input profile is not changed.');
+});
+
+test('saved squads are cleaned, and older saves start with their first five heroes', () => {
+  const storage = memoryStorage();
+  const owned = ['faxineiro', 'aprendiz', 'lin-yue', 'han-feng', 'su-lan', 'mo-yan', 'shen-lei'];
+  storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, crystals: 0, owned, copies: {}, unlockedStage: 1, completedStages: [], totalSummons: 6 }));
+  assert.deepEqual(loadProfile(storage).squad, owned.slice(0, SQUAD_SIZE));
+  storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, crystals: 0, owned, squad: ['shen-lei', 'xing-he', 'shen-lei', 'mo-yan', 'lin-yue', 'aprendiz', 'su-lan', 'han-feng'] }));
+  assert.deepEqual(loadProfile(storage).squad, ['shen-lei', 'mo-yan', 'lin-yue', 'aprendiz', 'su-lan']);
+  storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, crystals: 0, owned, squad: ['xing-he'] }));
+  assert.deepEqual(loadProfile(storage).squad, ['faxineiro'], 'An empty squad falls back to the Faxineiro.');
 });

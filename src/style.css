@@ -291,3 +291,20 @@
 .star-badge b{color:#9fd28a;font-size:9px;line-height:1}
 .fragment-badge{color:#f0d79a;border-color:#d9a85f88}
 .hero-card-info .card-stars{color:#e9c46f!important;font-weight:600}
+
+/* Squad tab: formation of up to five heroes taken into battle */
+.squad-lineup .squad-grid{max-height:none;overflow:visible}
+.squad-roster{padding-top:34px}
+.squad-roster .section-heading,.squad-lineup .section-heading{margin-bottom:4px}
+.squad-roster .collection-grid{margin-top:17px}
+.squad-lineup p b{color:#e9c46f;font-weight:600}
+.squad-slot{cursor:pointer}
+.squad-slot .squad-remove{position:absolute;top:7px;right:7px;width:20px;height:20px;display:grid;place-items:center;background:#1b2621e6;border:1px solid #8d5f55;color:#ec9a88;opacity:.55;transition:opacity .15s}
+.squad-slot:hover .squad-remove,.squad-slot:focus-visible .squad-remove{opacity:1}
+.squad-slot:hover{border-color:#8d5f55}
+.squad-slot.empty-hero{cursor:default}
+.squad-pick.in-squad{border-color:#9fd28a;box-shadow:0 0 0 1px #9fd28a66,0 0 18px #9fd28a22}
+.squad-flag{position:absolute;left:10px;top:11px;display:flex;align-items:center;gap:4px;font-size:7px;letter-spacing:.5px;color:#d7efc8;background:#1d3324e6;border:1px solid #9fd28a99;padding:4px 6px}
+.squad-flag svg{width:10px}
+.collection-info .card-stars{color:#e9c46f;font-weight:600}
+.page-heading .squad-go{width:auto;flex:0 0 auto;white-space:nowrap;padding:12px 22px}

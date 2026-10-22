@@ -1,6 +1,6 @@
 import { GameEngine, MAP } from './engine.js';
-import { HEROES, RARITIES, STAGES, WORLD, GACHA_COST, GACHA_TEN_COST } from './data.js';
-import { loadProfile, saveProfile, summon, grantVictory, raiseStar } from './profile.js';
+import { HEROES, RARITIES, STAGES, WORLD, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from './data.js';
+import { loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad } from './profile.js';
 import { FRAGMENTS_PER_COPY, STARS_PER_TIER, nextStarCost, starBonusPercent, starTier, withStars } from './stars.js';
 import { icon, portrait, renderTerrain } from './art.js';
 import { renderEnemy, renderProjectile, renderPad } from './pixel-units.js';
@@ -26,7 +26,11 @@ const stageInfo = () => STAGES.find(s => s.id === ui.stage) || STAGES[0];
 const starsOf = id => profile.stars?.[id] || 0;
 // The hero as it fights: base attributes plus the bonus of its stars.
 const fighter = id => withStars(heroById(id), starsOf(id));
-const ownedHeroes = () => profile.owned.filter(heroById).map(fighter);
+// Only the squad (up to five heroes) goes into battle.
+const squadHeroes = () => profile.squad.filter(heroById).map(fighter);
+// Keeps the hero selected for placement inside the squad.
+const keepSelectionInSquad = () => { if (!profile.squad.includes(ui.selectedHero)) ui.selectedHero = profile.squad[0]; };
+const rarityRank = hero => RARITIES.findIndex(r => r.id === hero.rarity);
 // Five slots: stars of the current group in its colour, the rest still showing the previous group's colour.
 const starRow = (stars, size = 14, next = false) => {
   const tier = starTier(stars);
@@ -40,10 +44,11 @@ const starRow = (stars, size = 14, next = false) => {
 const canRaiseStar = id => profile.owned.includes(id) && nextStarCost(starsOf(id)) !== null && (profile.fragments?.[id] || 0) >= nextStarCost(starsOf(id));
 const persist = () => { if (!saveProfile(profile)) toast('O navegador não permitiu salvar. Seu progresso vale nesta sessão.'); };
 const escapeText = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+keepSelectionInSquad();
 engine = makeEngine();
 
 function makeEngine() {
-  return new GameEngine({ stage: ui.stage, heroes: ownedHeroes(), onEvent: onEngineEvent });
+  return new GameEngine({ stage: ui.stage, heroes: squadHeroes(), onEvent: onEngineEvent });
 }
 
 function sound(kind = 'click') {
@@ -87,7 +92,7 @@ function logo() {
 }
 
 function render() {
-  const navs = [['defense', 'swords', 'Defesa'], ['recruit', 'gem', 'Recrutamento'], ['heroes', 'users', 'Meus heróis'], ['guide', 'book', 'Manual do Dao']];
+  const navs = [['defense', 'swords', 'Defesa'], ['squad', 'shield', 'Esquadrão'], ['recruit', 'gem', 'Recrutamento'], ['heroes', 'users', 'Meus heróis']];
   app.innerHTML = `<aside class="sidebar">
     <a href="#" class="brand" data-action="navigate" data-view="defense" aria-label="DTD início">${logo()}<span><strong>DTD<span class="brand-dot">.</span></strong><small>DAO TOWER DEFENSE</small></span></a>
     <div class="sidebar-label">SEU CAMINHO</div>
@@ -96,9 +101,9 @@ function render() {
     <div class="journey-card"><span class="eyebrow">A JORNADA DA ASCENSÃO</span><div><span>${WORLD.name}</span><span>${profile.completedStages.length}/${STAGES.length}</span></div><div class="journey-track"><i style="width:${profile.completedStages.length / STAGES.length * 100}%"></i></div><p>Até o maior mestre deu<br>seu primeiro passo.</p></div>
     <div class="player-card"><div class="player-avatar">${icon('sword', 20)}</div><div><strong>Cultivador</strong><span>Discípulo iniciante</span></div><span class="online-dot" title="Progresso local"></span></div>
   </aside>
-  <div class="workspace"><header class="topbar"><div class="breadcrumb">${WORLD.name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', guide: 'Manual do Dao' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
-  <main>${ui.view === 'defense' ? renderDefense() : ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : renderGuide()}</main>
-  <footer class="page-footer"><span><i></i> PIXEL ART · PROTÓTIPO JOGÁVEL <b>v0.2</b></span><span>Uma grande jornada. Pixel por pixel.</span></footer></div>`;
+  <div class="workspace"><header class="topbar"><div class="breadcrumb">${WORLD.name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
+  <main>${ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : ui.view === 'squad' ? renderSquadPage() : renderDefense()}</main>
+  <footer class="page-footer"><span><i></i> PIXEL ART · PROTÓTIPO JOGÁVEL <b>v0.2</b></span><span>Inspirado em Martial Peak · protótipo independente, sem vínculo oficial.</span></footer></div>`;
   lastHud = ''; lastPadMarkup = ''; lastTowerMarkup = '';
   if (ui.view === 'defense') { renderDynamic(); updateHud(true); }
 }
@@ -119,15 +124,37 @@ function renderDefense() {
     <div id="pause-overlay" class="pause-overlay ${ui.paused ? '' : 'hidden'}"><span>${icon('pause', 28)}</span><h3>A jornada pode esperar.</h3><button class="primary-button" data-action="pause">Continuar partida</button></div>
     <div class="map-hint">${icon('plus', 12)} Selecione um herói e clique em um círculo para posicionar</div></div>
     <div class="battle-status"><div><span class="live-indicator" id="live-indicator"></span><span id="battle-status-text">Preparação</span><span class="status-divider">/</span><span id="kills-text">0 inimigos derrotados</span></div><span>${icon('shield', 14)} ${escapeText(stage.guard)}</span></div>
-    <section class="squad-section"><div class="section-heading"><div><h2>Seu esquadrão <span>${profile.owned.length}</span></h2><p>Cada cultivador, um novo caminho.</p></div><button class="text-button" data-action="navigate" data-view="heroes">Ver coleção ${icon('arrowRight', 14)}</button></div><div class="squad-grid">${renderSquad()}</div></section>
+    <section class="squad-section"><div class="section-heading"><div><h2>Seu esquadrão <span>${profile.squad.length}/${SQUAD_SIZE}</span></h2><p>Escolha quem posicionar. Monte a formação na aba Esquadrão.</p></div><button class="text-button" data-action="navigate" data-view="squad">Editar esquadrão ${icon('arrowRight', 14)}</button></div><div class="squad-grid">${renderSquad()}</div></section>
     </section><aside class="battle-rail"><div id="command-panel">${renderCommandPanel()}</div><div class="wisdom-card"><span class="wisdom-icon">${icon('sparkles', 19)}</span><span class="eyebrow">SABEDORIA DO DAO</span><p>O poder não está apenas em quem você recruta, mas em onde você o posiciona.</p><span class="wisdom-line"></span></div><div class="reward-preview"><span class="reward-icon">${icon('gem', 22)}</span><div><small>RECOMPENSA DA FASE</small><strong>${profile.completedStages.includes(ui.stage) ? '50' : stage.reward} Cristais do Dao</strong></div>${icon('chevronRight', 15)}</div></aside></div>`;
 }
 
 function renderSquad() {
-  const heroes = ownedHeroes();
+  const heroes = squadHeroes();
   const cards = heroes.map(hero => { const rarity = rarityOf(hero); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${ui.selectedHero === hero.id ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
-  while (cards.length < 5) cards.push(`<button class="hero-card empty-hero" data-action="navigate" data-view="recruit"><div>${icon('lock', 22)}<span>Um novo destino</span></div><span>Recrute um herói ${icon('plus', 12)}</span></button>`);
+  // Empty slots lead to the squad tab, or to recruitment when every hero is already in the squad.
+  const spare = profile.owned.length > profile.squad.length;
+  while (cards.length < SQUAD_SIZE) cards.push(`<button class="hero-card empty-hero" data-action="navigate" data-view="${spare ? 'squad' : 'recruit'}"><div>${icon(spare ? 'plus' : 'lock', 22)}<span>Vaga livre</span></div><span>${spare ? 'Montar esquadrão' : 'Recrute um herói'} ${icon('plus', 12)}</span></button>`);
   return cards.join('');
+}
+
+function renderSquadPage() {
+  const members = squadHeroes();
+  const slots = Array.from({ length: SQUAD_SIZE }, (_, i) => {
+    const hero = members[i];
+    if (!hero) return `<div class="hero-card empty-hero squad-slot"><div>${icon('plus', 22)}<span>Vaga livre</span></div><span>Escolha um herói abaixo</span></div>`;
+    const r = rarityOf(hero);
+    return `<button class="hero-card squad-slot" style="--hero-color:${r.color}" data-action="squad-toggle" data-id="${hero.id}" aria-label="Tirar ${escapeText(hero.name)} do esquadrão"><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${r.name}</span><span class="squad-remove" title="Tirar do esquadrão">${icon('close', 11)}</span></div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : ''}</span></span></div></button>`;
+  });
+  const roster = profile.owned.filter(heroById).map(fighter)
+    .sort((a, b) => rarityRank(b) - rarityRank(a) || a.name.localeCompare(b.name, 'pt-BR'));
+  const totalDamage = members.reduce((sum, hero) => sum + hero.damage, 0);
+  const cards = roster.map(hero => {
+    const r = rarityOf(hero); const inSquad = profile.squad.includes(hero.id);
+    return `<button class="collection-card squad-pick ${inSquad ? 'in-squad' : ''}" style="--hero-color:${r.color}" data-action="squad-toggle" data-id="${hero.id}" aria-pressed="${inSquad}"><div class="collection-portrait">${portrait(hero)}<span class="collection-rarity">${r.name}</span>${inSquad ? `<span class="squad-flag">${icon('check', 11)} NO ESQUADRÃO</span>` : ''}</div><div class="collection-info"><small>${escapeText(hero.title)}</small><h3>${escapeText(hero.name)}</h3><div><span>${icon('sword', 13)} ${hero.damage}</span><span>${icon('qi', 13)} ${hero.cost} Qi</span>${hero.stars ? `<span class="card-stars">${hero.stars}★</span>` : ''}</div></div></button>`;
+  }).join('');
+  return `${pageHeading('PREPARE-SE PARA A BATALHA', 'Seu esquadrão<span>.</span>', `Escolha até ${SQUAD_SIZE} cultivadores para levar à defesa. Só eles aparecem e podem ser posicionados no campo de batalha.`, `<button class="primary-button squad-go" data-action="navigate" data-view="defense">Ir para a defesa ${icon('arrowRight', 16)}</button>`)}
+    <section class="squad-lineup"><div class="section-heading"><div><h2>Formação <span>${members.length}/${SQUAD_SIZE}</span></h2><p>Clique em um herói da formação para tirá-lo. Dano somado: <b>${totalDamage}</b>.</p></div></div><div class="squad-grid">${slots.join('')}</div></section>
+    <section class="squad-roster"><div class="section-heading"><div><h2>Seus heróis <span>${profile.owned.length}</span></h2><p>Clique em um herói para colocá-lo ou tirá-lo da formação.</p></div><button class="text-button" data-action="navigate" data-view="recruit">Recrutar mais ${icon('arrowRight', 14)}</button></div><div class="collection-grid">${cards}</div></section>`;
 }
 
 function renderCommandPanel() {
@@ -153,11 +180,6 @@ function renderRecruit() {
 function renderHeroes() {
   const filtered = HEROES.filter(hero => ui.filter === 'all' || ui.filter === 'owned' && profile.owned.includes(hero.id) || ui.filter === hero.rarity);
   return `${pageHeading('ALIADOS PARA A ETERNIDADE', 'Cada herói, uma história<span>.</span>', 'Conheça seus cultivadores e os mestres que ainda cruzarão seu caminho.', `<span class="collection-count">${icon('users', 18)}<b>${profile.owned.length}</b> / ${HEROES.length} descobertos</span>`)}<div class="collection-filters"><button data-action="filter" data-filter="all" class="filter-chip ${ui.filter === 'all' ? 'active' : ''}">Todos</button><button data-action="filter" data-filter="owned" class="filter-chip ${ui.filter === 'owned' ? 'active' : ''}">Meus heróis</button>${RARITIES.map(r => `<button class="filter-chip ${ui.filter === r.id ? 'active' : ''}" data-action="filter" data-filter="${r.id}" style="--rarity-color:${r.color}">${r.name}</button>`).join('')}</div><div class="collection-grid">${filtered.map(hero => { const r = rarityOf(hero); const owned = profile.owned.includes(hero.id); const ready = canRaiseStar(hero.id); return `<button class="collection-card ${owned ? '' : 'unowned'}" style="--hero-color:${r.color}" data-action="hero-detail" data-id="${hero.id}"><div class="collection-portrait">${portrait(hero)}<span class="collection-rarity">${r.name}</span>${owned ? `<span class="copy-badge star-badge ${ready ? 'ready' : ''}" title="${ready ? 'Pronto para elevar estrela' : `${profile.fragments?.[hero.id] || 0} fragmentos`}">${starRow(starsOf(hero.id), 9)}${ready ? '<b>↑</b>' : ''}</span>` : `<span class="undiscovered">${icon('lock', 16)} NÃO RECRUTADO</span>`}</div><div class="collection-info"><small>${escapeText(hero.title)}</small><h3>${escapeText(hero.name)}</h3><div><span>${icon('sword', 13)} ${owned ? fighter(hero.id).damage : hero.damage}</span><span>${icon('qi', 13)} ${hero.cost} Qi</span>${icon('arrowRight', 14)}</div></div></button>`; }).join('') || '<div class="empty-state">Nenhum cultivador nesta categoria. Seu próximo aliado pode estar no pavilhão.</div>'}</div>`;
-}
-
-function renderGuide() {
-  const guides = [ ['flag', '01', 'Escolha seu caminho', 'Comece no Pavilhão Ling Xiao, onde o Faxineiro varre os pátios. Cada fase tem cinco ondas e um chefe na última. Concluir uma fase libera a próxima, até o Portal para o Reino Tong Xuan.'], ['users', '02', 'Posicione os cultivadores', 'Selecione um herói do esquadrão e clique em um círculo do mapa. O posicionamento consome Qi. Você pode posicionar o mesmo herói várias vezes.'], ['qi', '03', 'Cultive seu poder', 'Cada inimigo derrotado gera Qi. Clique em uma torre para melhorar seu dano, alcance e velocidade, ou dispensá-la para recuperar 70% do investimento.'], ['gem', '04', 'Encontre novos aliados', 'Vitórias concedem Cristais do Dao. Gaste-os no recrutamento para ganhar heróis de sete raridades. As chances estão disponíveis no pavilhão.'] ];
-  return `${pageHeading('CONHECIMENTO É O PRIMEIRO PODER', 'Manual do Dao<span>.</span>', 'O necessário para transformar um simples faxineiro no defensor de uma seita.')}<div class="guide-grid">${guides.map(([glyph, n, title, text]) => `<article class="guide-card"><div class="guide-top"><span>${icon(glyph, 27)}</span><b>${n}</b></div><h2>${title}</h2><p>${text}</p></article>`).join('')}</div><section class="guide-footnote"><div>${icon('shield', 24)}<div><h3>O que fica. O que recomeça.</h3><p>Heróis e Cristais do Dao ficam salvos neste navegador. Qi, torres e melhorias reiniciam em cada fase. Limpar os dados do navegador remove seu progresso.</p></div></div><div class="keyboard-hints"><span><kbd>ESPAÇO</kbd> Iniciar / pausar</span><span><kbd>ESC</kbd> Fechar detalhes</span><span><kbd>2</kbd> Velocidade</span></div></section><div class="inspiration-note">Um universo de cultivo inspirado em Martial Peak, com a jornada do Mundo Inicial do Black Book Idle. Protótipo independente, sem vínculo oficial.</div>`;
 }
 
 function renderDynamic() {
@@ -237,15 +259,17 @@ function showHero(id) {
   const base = heroById(id); if (!base) return;
   const r = rarityOf(base); const owned = profile.owned.includes(id);
   const hero = owned ? fighter(id) : base;
-  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p>${starPanel(id, owned)}<div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div><button class="primary-button" data-action="${owned ? 'use-hero' : 'result-recruit'}" data-id="${hero.id}">${owned ? 'Selecionar para a defesa' : 'Visitar recrutamento'} ${icon('arrowRight', 16)}</button>`, 'hero-modal');
+  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p>${starPanel(id, owned)}<div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div>${!owned ? `<button class="primary-button" data-action="result-recruit">Visitar recrutamento ${icon('arrowRight', 16)}</button>`
+    : profile.squad.includes(id) ? `<button class="primary-button" data-action="use-hero" data-id="${id}">Selecionar para a defesa ${icon('arrowRight', 16)}</button>`
+    : `<button class="primary-button" data-action="squad-toggle" data-id="${id}">${icon('plus', 16)} Colocar no esquadrão</button>`}`, 'hero-modal');
 }
 
 function doSummon(count) {
   const result = summon(profile, count);
   if (!result.ok) return toast(result.reason || 'Cristais insuficientes. Conclua fases para ganhar mais.');
   const before = new Set(profile.owned);
-  profile = result.profile; engine.setHeroes(ownedHeroes()); persist(); sound('victory'); render();
-  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span></div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram na coleção. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
+  profile = result.profile; engine.setHeroes(squadHeroes()); persist(); sound('victory'); render();
+  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span></div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram no esquadrão se houver vaga. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
 }
 
 function activate(action, el) {
@@ -257,10 +281,17 @@ function activate(action, el) {
   if (action === 'select-hero') { ui.selectedHero = el.dataset.id; ui.selectedTower = null; render(); }
   if (action === 'select-tower') { ui.selectedTower = el.dataset.id; const tower = engine.state.towers.find(t => String(t.id) === el.dataset.id); ui.selectedTower = tower?.id ?? el.dataset.id; updateHud(true); renderDynamic(); }
   if (action === 'deselect-tower') { ui.selectedTower = null; updateHud(true); renderDynamic(); }
+  if (action === 'squad-toggle') {
+    const id = el.dataset.id; const result = toggleSquad(profile, id);
+    if (!result.ok) return toast(result.reason);
+    if (el.closest('.modal')) closeModal();
+    profile = result.profile; persist(); keepSelectionInSquad(); engine.setHeroes(squadHeroes()); render();
+    toast(result.added ? `${heroById(id).name} entrou no esquadrão.` : `${heroById(id).name} saiu do esquadrão.`);
+  }
   if (action === 'star-up') {
     const id = el.dataset.id; const result = raiseStar(profile, id);
     if (!result.ok) return toast(result.reason);
-    profile = result.profile; engine.setHeroes(ownedHeroes()); persist(); sound('victory');
+    profile = result.profile; engine.setHeroes(squadHeroes()); persist(); sound('victory');
     render(); showHero(id);
     const name = heroById(id).name;
     toast(result.stars % STARS_PER_TIER === 0

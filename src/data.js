@@ -74,5 +74,8 @@ export const STAGES = [
     'Diante de um antigo corredor espacial, cercado por ruínas e energia espacial. Este mundo era apenas o começo.'),
 ];
 
+// Heroes taken into battle: only the squad can be placed on the map.
+export const SQUAD_SIZE = 5;
+
 export const GACHA_COST = 100;
 export const GACHA_TEN_COST = 900;
