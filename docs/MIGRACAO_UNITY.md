@@ -8,7 +8,10 @@ Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador 
 
 - **Etapas 1 e 2 concluídas (2026-10-22).** O projeto Unity está em `Desktop\DTD-Unity` (Unity 6, 2D com URP, git próprio).
   Ele importa o pacote pelo menu *DTD → Importar pacote do jogo web*, e o núcleo do combate em C# passa nos 7 testes de paridade,
-  incluindo as 4 partidas completas, quadro a quadro. Próxima: **etapa 3, batalha jogável (fase 1)**.
+  incluindo as 4 partidas completas, quadro a quadro.
+- **Etapa 3 concluída (2026-10-22).** A cena `Battle.unity` é jogável: cenário pintado, plataformas, torres chibi, inimigos com
+  barra de vida, projéteis, interface (vidas, Qi, contagem, painel, esquadrão), pausa, 2× e ondas automáticas. O build para
+  Windows venceu a fase 1 no modo demonstração (55 abates, 20 vidas). Próxima: **etapa 4, as 12 fases e o progresso**.
 
 ## O que já está pronto
 
