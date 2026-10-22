@@ -1,0 +1,67 @@
+// Small sprites use a two-pixel grid so movement never blurs their contours.
+const rect = (x, y, width, height, fill, extra = '') =>
+  `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" ${extra}/>`;
+
+export function renderEnemy(enemy) {
+  const boss = enemy.kind === 'boss';
+  const brute = enemy.kind === 'brute';
+  const fast = enemy.kind === 'fast';
+  const width = boss ? 20 : brute ? 16 : 12;
+  const height = boss ? 24 : brute ? 18 : 15;
+  let sprite;
+  if (boss) {
+    sprite = `<path d="M2 1H5V4H7V3H13V4H15V1H18V7H20V15H18V21H15V24H11V21H9V24H5V21H2V15H0V7H2Z" fill="#251e36"/>
+      <path d="M3 2H5V7H3ZM15 2H17V7H15Z" fill="#deb8a0"/>
+      <path d="M4 6H7V5H13V6H16V9H18V16H16V20H13V23H11V19H9V23H7V20H4V16H2V9H4Z" fill="#634059"/>
+      <path d="M4 7H7V6H13V7H16V10H4Z" fill="#976073"/>
+      ${rect(4, 10, 5, 2, '#ffe4a4')}${rect(11, 10, 5, 2, '#ffe4a4')}
+      ${rect(5, 10, 2, 3, '#ed805c')}${rect(13, 10, 2, 3, '#ed805c')}
+      <path d="M8 14H12V15H13V18H12V19H8V18H7V15H8Z" fill="#f1a767"/>
+      ${rect(9, 15, 2, 3, '#ffe4a4')}${rect(1, 12, 3, 5, '#3f304b')}${rect(16, 12, 3, 5, '#3f304b')}`;
+  } else if (brute) {
+    sprite = `<path d="M4 1H12V3H14V5H16V14H13V18H10V15H6V18H3V14H0V5H2V3H4Z" fill="#202c39"/>
+      <path d="M4 3H12V5H14V12H12V15H10V14H6V15H4V12H2V5H4Z" fill="#687b81"/>
+      ${rect(4, 3, 8, 2, '#9caaa0')}${rect(2, 6, 3, 6, '#839291')}
+      ${rect(5, 7, 6, 4, '#303d4e')}${rect(5, 8, 2, 1, '#ffcf86')}${rect(9, 8, 2, 1, '#ffcf86')}
+      ${rect(6, 12, 4, 2, '#454f60')}${rect(0, 9, 3, 4, '#414b60')}${rect(13, 9, 3, 4, '#414b60')}`;
+  } else {
+    const light = fast ? '#8bb9b4' : '#a58ab7';
+    const mid = fast ? '#4b837e' : '#795a91';
+    const dark = fast ? '#244a53' : '#493954';
+    sprite = `<path d="M1 0H3V2H9V0H11V5H12V11H10V13H9V15H7V13H5V15H3V13H2V11H0V5H1Z" fill="#252839"/>
+      <path d="M2 2H4V3H8V2H10V6H11V10H9V12H8V14H7V12H5V14H4V12H3V10H1V6H2Z" fill="${mid}"/>
+      ${rect(3, 3, 6, 2, light)}${rect(2, 5, 2, 5, light)}${rect(8, 7, 3, 4, dark)}
+      ${rect(3, 6, 2, 2, '#ffdd96')}${rect(7, 6, 2, 2, '#ffdd96')}
+      ${rect(5, 10, 2, 1, '#d4bad4')}${fast ? `<path d="M0 8H2V11H0ZM10 8H12V11H10Z" fill="#b7ddd0"/>` : ''}`;
+  }
+  const barWidth = width * 2;
+  const health = Math.max(0, Math.round(barWidth * enemy.hp / enemy.maxHp));
+  return `<g class="enemy pixel-enemy" data-kind="${enemy.kind}" transform="translate(${Math.round(enemy.x - width)},${Math.round(enemy.y - height * 2 + 10)})" shape-rendering="crispEdges">
+    ${rect(2, height * 2 - 2, barWidth - 4, 4, '#182b2b', 'opacity=".5"')}
+    <g transform="scale(2)">${sprite}</g>
+    ${rect(-1, -7, barWidth + 2, 5, '#1b2631')}
+    ${rect(0, -6, health, 3, boss ? '#e7a18a' : '#c4d48d')}
+  </g>`;
+}
+
+export function renderProjectile(projectile) {
+  const x = Math.round(projectile.x / 2) * 2;
+  const y = Math.round(projectile.y / 2) * 2;
+  const color = projectile.color || '#d8e8a7';
+  return `<g class="projectile pixel-projectile" shape-rendering="crispEdges">
+    ${rect(x - 5, y - 1, 10, 2, color, 'opacity=".45"')}
+    ${rect(x - 1, y - 5, 2, 10, color, 'opacity=".45"')}
+    ${rect(x - 3, y - 3, 6, 6, color)}${rect(x - 1, y - 1, 2, 2, '#fff1c9')}
+  </g>`;
+}
+
+export function renderPad(pad, tower, selectedHeroName) {
+  const face = 'M-10-24H10V-22H18V-18H22V-10H24V10H22V18H18V22H10V24H-10V22H-18V18H-22V10H-24V-10H-22V-18H-18V-22H-10Z';
+  return `<g class="map-pad pixel-pad ${tower ? 'occupied' : ''}" data-action="${tower ? 'select-tower' : 'place'}" data-id="${tower ? tower.id : pad.id}" role="button" tabindex="${tower ? '-1' : '0'}" aria-label="${tower ? `${tower.hero.name}, nível ${tower.level}` : `Posicionar ${selectedHeroName} na posição ${pad.id}`}" transform="translate(${pad.x},${pad.y})" shape-rendering="crispEdges">
+    <path d="${face}" class="pixel-pad-shadow" transform="translate(0,4)"/>
+    <path d="${face}" class="pixel-pad-face"/>
+    <path d="M-8-18H8M-18-8V8M18-8V8M-8 18H8" class="pixel-pad-inlay"/>
+    ${tower ? '' : '<path d="M-6-2H-2V-6H2V-2H6V2H2V6H-2V2H-6Z" class="pixel-pad-plus"/>'}
+    <rect x="-27" y="-27" width="54" height="54" fill="transparent" pointer-events="all"/>
+  </g>`;
+}

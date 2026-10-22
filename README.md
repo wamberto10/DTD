@@ -1,8 +1,12 @@
 # DTD — Dao Tower Defense
 
-Protótipo jogável de tower defense para navegador no computador, em português, com temática de cultivo inspirada em *Martial Peak*. Arte vetorial e personagens originais.
+Protótipo jogável de tower defense para navegador no computador, em português, com temática de cultivo inspirada em *Martial Peak*. Arte em pixels e personagens originais.
 
 Você começa com o **Faxineiro**. Posicione cultivadores para proteger o portal da seita, derrote cinco ondas por território e ganhe **Cristais do Dao** para recrutar novos heróis.
+
+A direção visual é **pixel art**: cenário em grade 500×300 ampliado 2×, retratos e sprites em grade 30×35, criaturas e Qi com contornos em pixels e títulos na fonte Pixelify Sans. Cada território tem sua própria paleta. Os sprites são desenhados em SVG com bordas nítidas e os personagens em campo têm fundo transparente.
+
+![DTD em pixel art durante uma partida](docs/DTD-pixel-art.jpg)
 
 ## Jogar no navegador com GitHub Pages
 
@@ -86,7 +90,10 @@ Os scripts usam `/usr/bin/chromium` por padrão; `CHROMIUM_PATH` permite outro c
 - `src/engine.js`: simulação do combate, independente da interface.
 - `src/data.js`: heróis, raridades, atributos e territórios.
 - `src/profile.js`: gacha, recompensas e persistência local.
-- `src/art.js`: mapa, retratos e ícones SVG.
+- `src/art.js`: exportações de arte e ícones da interface.
+- `src/pixel-terrain.js`: cenário em pixels e paletas das três fases.
+- `src/pixel-portraits.js`: 14 heróis em pixels e variantes transparentes.
+- `src/pixel-units.js`: criaturas, posições e projéteis em pixels.
 - `src/app.js` e `src/style.css`: interface e interação.
 
 As fontes são distribuídas junto com o jogo; a aplicação não depende de serviços externos durante a partida. Esta versão roda no navegador, sem instalador nativo para Windows.
