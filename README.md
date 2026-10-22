@@ -96,14 +96,25 @@ npm run arte
 
 O comando gera as cópias e atualiza `src/art-manifest.js`. Um cenário novo também precisa do caminho e das nove plataformas traçados em `src/maps.js`; até lá, a fase usa o caminho padrão.
 
+## Migração para o Unity
+
+O plano está em `docs/MIGRACAO_UNITY.md`. Para gerar o pacote com dados (JSON), arte (PNG) e casos de teste para a versão Unity:
+
+```bash
+npm run unity
+```
+
+O resultado fica em `unity-export/`, fora do git, e pode ser gerado de novo a qualquer momento. Todos os números do combate ficam em `BALANCE`, em `src/engine.js`.
+
 ## Estrutura
 
-- `src/engine.js`: simulação do combate, independente da interface.
+- `src/engine.js`: simulação do combate, independente da interface; os números ficam em `BALANCE`.
 - `src/maps.js`: caminho dos inimigos e plataformas de cada cenário.
 - `src/stars.js`: fragmentos, custo e bônus das estrelas dos heróis.
 - `src/data.js`: heróis, raridades, atributos e as 12 fases do Mundo Inicial.
 - `src/chibi-art.js` e `src/art-manifest.js`: arte chibi de heróis, inimigos e cenários.
 - `scripts/preparar-arte.mjs`: gera `public/arte/` a partir de `arte/ia/`.
+- `scripts/exportar-unity.mjs`: gera o pacote `unity-export/` para o Unity.
 - `src/profile.js`: gacha, recompensas e persistência local.
 - `src/art.js`: exportações de arte e ícones da interface.
 - `src/pixel-terrain.js`: cenário em pixels e paletas das três fases.

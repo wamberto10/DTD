@@ -1,0 +1,175 @@
+// Builds unity-export/: everything the Unity version needs from this game.
+//   dados/  JSON with heroes, stages (road + platforms), every balance rule, and reference results
+//           from this engine so the C# port can be checked number by number.
+//   arte/   PNG pictures (Unity does not import WebP), from the original art in arte/ia when present.
+// Run: npm run unity
+import { mkdir, readdir, rm, writeFile, access } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
+import { HEROES, RARITIES, STAGES, WORLD, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
+import { BALANCE, GameEngine, enemyKind, stageDifficulty } from '../src/engine.js';
+import { DEFAULT_MAP, hasPaintedMap, mapForStage, pointOnPath, stageKey } from '../src/maps.js';
+import { FIRST_TIER_COSTS, FRAGMENTS_PER_COPY, STARS_PER_TIER, STAR_BONUS, STAR_TIERS, nextStarCost, withStars } from '../src/stars.js';
+import { ART } from '../src/art-manifest.js';
+import { STORAGE_KEY, createProfile } from '../src/profile.js';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const out = path.join(root, 'unity-export');
+const exists = file => access(file).then(() => true, () => false);
+const json = (file, data) => writeFile(path.join(out, 'dados', file), `${JSON.stringify(data, null, 2)}\n`);
+
+await rm(out, { recursive: true, force: true });
+for (const dir of ['dados', 'arte/herois', 'arte/inimigos', 'arte/fases']) await mkdir(path.join(out, dir), { recursive: true });
+
+// ---------- Data ----------
+const mapData = map => ({
+  path: map.path.map(({ x, y }) => [x, y]),
+  pads: map.pads.map(({ id, x, y }) => ({ id, x, y })),
+  pathLength: Math.round(map.pathLength * 1000) / 1000,
+});
+
+await json('raridades.json', RARITIES);
+await json('herois.json', HEROES.map(hero => ({ ...hero, art: ART.herois[hero.id] ? `arte/herois/${hero.id}.png` : null })));
+await json('fases.json', {
+  world: WORLD,
+  defaultMap: mapData(DEFAULT_MAP),
+  stages: STAGES.map(stage => {
+    const key = stageKey(stage.id);
+    const kinds = ART.inimigos[key] || {};
+    return {
+      ...stage, key,
+      difficultyMultiplier: stageDifficulty(stage.id),
+      scenery: ART.fases[key] ? `arte/fases/${key}.png` : null,
+      enemyArt: Object.fromEntries(['normal', 'fast', 'brute', 'boss'].map(kind => [kind, kinds[kind] ? `arte/inimigos/${key}-${kind}.png` : null])),
+      usesDefaultMap: !hasPaintedMap(stage.id),
+      map: hasPaintedMap(stage.id) ? mapData(mapForStage(stage.id)) : null,
+    };
+  }),
+});
+await json('regras.json', {
+  // Battle space: 1000 × 600 units, origin at the top-left corner, y grows downward (as on the web page).
+  battleSpace: { width: 1000, height: 600, origin: 'top-left', yAxis: 'down' },
+  balance: BALANCE,
+  stageDifficulty: 'multiplier = 1 + (stage - 1) * balance.stageStep',
+  waveFormulas: {
+    count: 'baseCount + wave * countPerWave',
+    hp: 'round((baseHp + wave * hpPerWave) * stageMultiplier * enemies[kind].hp)',
+    speed: 'enemies[kind].speed + wave * speedPerWave',
+    kind: 'boss if last enemy of the final wave; brute if wave >= bruteFromWave and index % bruteEvery == bruteSlot; fast if wave >= fastFromWave and index % fastEvery == fastSlot; else normal',
+    spawn: 'first enemy at once, then every spawnInterval seconds (finalWaveSpawnInterval in the last wave)',
+  },
+  towerFormulas: {
+    damage: 'round(hero.damage * (1 + (level - 1) * damagePerLevel))',
+    range: 'hero.range + (level - 1) * rangePerLevel',
+    attackSpeed: 'round(hero.attackSpeed * (1 + (level - 1) * attackSpeedPerLevel) * 100) / 100',
+    upgradeCost: 'round(hero.cost * upgradeCostFactor * upgradeCostGrowth ^ (level - 1)), none at maxLevel',
+    sellRefund: 'floor(spent * sellRefund)',
+    targeting: 'enemy with the largest progress among those within range; damage lands at once',
+    cooldown: '1 / attackSpeed seconds',
+  },
+  stars: {
+    fragmentsPerCopy: FRAGMENTS_PER_COPY, starsPerTier: STARS_PER_TIER, firstTierCosts: FIRST_TIER_COSTS,
+    costFormula: 'firstTierCosts[stars % 5] * 2 ^ floor(stars / 5)',
+    bonusPerStar: STAR_BONUS, tiers: STAR_TIERS,
+    heroFormula: 'damage = round(base * (1 + stars * bonus.damage)); attackSpeed = round(base * (1 + stars * bonus.attackSpeed) * 100) / 100',
+  },
+  gacha: { singleCost: GACHA_COST, tenCost: GACHA_TEN_COST, pity: false, rule: 'roll rarity by chance, then one hero of that rarity with equal odds' },
+  squad: { size: SQUAD_SIZE, min: 1, newRecruitsJoinWhileRoom: true },
+  progression: {
+    startingProfile: createProfile(),
+    firstClearReward: '150 + (stage - 1) * 25', repeatReward: 50, unlock: 'sequential',
+    webSaveKey: STORAGE_KEY,
+  },
+});
+
+// ---------- Reference results (golden tests for the C# port) ----------
+const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
+const round = value => Math.round(value * 1e6) / 1e6;
+// A scripted match: Faxineiro on three platforms; between waves, each tower (in placement order) is upgraded once if affordable.
+function scriptedMatch(stage, stars, pads) {
+  const hero = withStars(cleaner, stars);
+  const game = new GameEngine({ stage, heroes: [hero] });
+  for (const pad of pads) game.placeTower(hero, pad);
+  const waves = [];
+  for (let wave = 1; wave <= BALANCE.wavesPerStage && ['preparing'].includes(game.state.status); wave++) {
+    if (wave > 1) for (const tower of [...game.state.towers]) {
+      const cost = game.getNextUpgradeCost(tower);
+      if (cost !== null && game.state.qi >= cost) game.upgradeTower(tower.id);
+    }
+    game.startWave();
+    let frames = 0;
+    while (game.state.status === 'running' && frames < 30 * 600) { game.update(1 / 30); frames++; }
+    waves.push({ wave, frames, status: game.state.status, kills: game.state.kills, qi: game.state.qi, lives: game.state.lives,
+      towerLevels: game.state.towers.map(tower => tower.level) });
+  }
+  return { stage, hero: 'faxineiro', stars, pads, dt: 1 / 30, rule: 'between waves, upgrade each tower once in placement order if Qi allows; start the next wave at once', waves };
+}
+await json('casos-de-teste.json', {
+  about: 'Results of the JavaScript engine. The Unity port must give the same numbers for the same inputs.',
+  pathSamples: STAGES.map(stage => {
+    const map = mapForStage(stage.id);
+    return { stage: stage.id, pathLength: round(map.pathLength), points: [0, 150, 500, 1000, map.pathLength + 10].map(d => ({ distance: round(d), ...Object.fromEntries(Object.entries(pointOnPath(d, map)).map(([k, v]) => [k, round(v)])) })) };
+  }),
+  waveComposition: [1, 12].flatMap(stage => [1, 3, 5].map(wave => {
+    const count = BALANCE.waves.baseCount + wave * BALANCE.waves.countPerWave;
+    const kinds = Array.from({ length: count }, (_, i) => enemyKind(wave, i, count));
+    const probe = new GameEngine({ stage });
+    probe.state.wave = wave - 1;
+    probe.startWave();
+    return { stage, wave, kinds, hp: probe._spawnQueue.map(e => e.hp), speed: probe._spawnQueue.map(e => round(e.speed)), reward: probe._spawnQueue.map(e => e.reward) };
+  })),
+  towerLevels: HEROES.filter(h => ['faxineiro', 'long-chen'].includes(h.id)).map(hero => {
+    const probe = new GameEngine();
+    return { hero: hero.id, levels: [1, 2, 3, 4, 5].map(level => ({ level, ...probe.getTowerStats({ hero, level }), nextUpgradeCost: probe.getNextUpgradeCost({ hero, level }) })) };
+  }),
+  starCosts: Array.from({ length: 15 }, (_, stars) => ({ from: stars, cost: nextStarCost(stars) })),
+  starredHeroes: [0, 1, 5, 7, 12].map(stars => ({ hero: 'faxineiro', stars, damage: withStars(cleaner, stars).damage, attackSpeed: withStars(cleaner, stars).attackSpeed })),
+  // The last one is a lost match (one tower against stage 12), to check lives and defeat too.
+  matches: [scriptedMatch(1, 0, ['p1', 'p2', 'p4']), scriptedMatch(5, 0, ['p2', 'p3', 'p6']), scriptedMatch(12, 5, ['p2', 'p4', 'p6']), scriptedMatch(12, 0, ['p1'])],
+});
+
+// ---------- Art (PNG) ----------
+const raw = path.join(root, 'arte', 'ia');
+const webp = path.join(root, 'public', 'arte');
+const pngs = async dir => (await readdir(dir).catch(() => [])).filter(file => file.toLowerCase().endsWith('.png'));
+const KIND = { comum: 'normal', rapido: 'fast', forte: 'brute', chefe: 'boss' };
+let count = 0;
+async function sprite(source, target, maxSize) {
+  await sharp(source).ensureAlpha().trim({ threshold: 10 })
+    .resize(maxSize, maxSize, { fit: 'inside', withoutEnlargement: true, kernel: 'lanczos3' })
+    .png({ compressionLevel: 9 }).toFile(target);
+  count++;
+}
+// Heroes: 512 px; enemies 384 px; bosses 512 px; scenery 2000 × 1200 (the 1000 × 600 battle space at 2×).
+for (const id of Object.keys(ART.herois)) {
+  const source = (await exists(path.join(raw, 'herois', `${id}.png`))) ? path.join(raw, 'herois', `${id}.png`) : path.join(webp, 'herois', `${id}.webp`);
+  await sprite(source, path.join(out, 'arte', 'herois', `${id}.png`), 512);
+}
+for (const dir of ['inimigos', 'chefes']) {
+  for (const file of await pngs(path.join(raw, dir))) {
+    const match = file.match(/^(f\d{2})_(comum|rapido|forte|chefe)_/);
+    if (match) await sprite(path.join(raw, dir, file), path.join(out, 'arte', 'inimigos', `${match[1]}-${KIND[match[2]]}.png`), match[2] === 'chefe' ? 512 : 384);
+  }
+}
+for (const [key] of Object.entries(ART.fases)) {
+  const original = (await pngs(path.join(raw, 'fases'))).find(file => file.startsWith(`${key}_`));
+  const source = original ? path.join(raw, 'fases', original) : path.join(webp, 'fases', `${key}.webp`);
+  await sharp(source).resize(2000, 1200, { fit: 'fill', kernel: 'lanczos3' }).png({ compressionLevel: 9 }).toFile(path.join(out, 'arte', 'fases', `${key}.png`));
+  count++;
+}
+
+await writeFile(path.join(out, 'LEIA-ME.md'), `# Pacote do DTD para o Unity
+
+Gerado por \`npm run unity\` a partir do jogo web. Não edite à mão: rode o comando de novo.
+
+- \`dados/herois.json\`, \`dados/raridades.json\`: os 14 heróis e as 7 raridades.
+- \`dados/fases.json\`: as 12 fases, com caminho e plataformas (espaço de batalha 1000 × 600, origem no canto superior esquerdo, y para baixo).
+- \`dados/regras.json\`: todos os números e fórmulas (combate, ondas, torres, estrelas, recrutamento, esquadrão, progresso).
+- \`dados/casos-de-teste.json\`: resultados do motor atual para conferir a versão em C#.
+- \`arte/\`: heróis (512 px), inimigos (384 px), chefes (512 px) e cenários (2000 × 1200), em PNG.
+
+O plano completo está em \`docs/MIGRACAO_UNITY.md\`.
+`);
+
+console.log(`Pacote do Unity pronto em unity-export/: ${HEROES.length} heróis, ${STAGES.length} fases, ${count} imagens PNG.`);

@@ -5,3 +5,6 @@ dist/
 
 # Arte original gerada por IA (grande). O jogo usa as cópias leves em public/arte (npm run arte).
 arte/ia/
+
+# Pacote gerado para o Unity (npm run unity).
+unity-export/

@@ -4,16 +4,59 @@ import { DEFAULT_MAP, mapForStage, pointOnPath } from './maps.js';
 export const MAP = DEFAULT_MAP;
 export { mapForStage, pointOnPath };
 
-/** After the player starts the first wave, each next wave starts by itself after this break. */
-export const WAVE_BREAK_SECONDS = 5;
+/**
+ * Every combat number in one place. The game reads them here, and scripts/exportar-unity.mjs
+ * exports them as-is so the Unity version plays exactly the same.
+ */
+export const BALANCE = Object.freeze({
+  startLives: 20,
+  startQi: 180,
+  wavesPerStage: 5,
+  // Enemy health grows 18% per stage: the Faxineiro alone can still clear stage 12 with good play.
+  stageStep: 0.18,
+  // After the player starts the first wave, each next wave starts by itself after this break (real seconds).
+  waveBreakSeconds: 5,
+  simulationStep: 1 / 30,
+  maxFrameSeconds: 1,
+  speeds: [1, 2],
+  waves: Object.freeze({
+    baseCount: 5, countPerWave: 2,
+    baseHp: 23, hpPerWave: 8, speedPerWave: 1.5,
+    spawnInterval: 1.05, finalWaveSpawnInterval: 0.85,
+    // From wave 2, every 4th enemy (slot 2) is fast; from wave 3, every 5th (slot 3) is a brute; the last enemy of the final wave is the boss.
+    fastFromWave: 2, fastEvery: 4, fastSlot: 2,
+    bruteFromWave: 3, bruteEvery: 5, bruteSlot: 3,
+  }),
+  enemies: Object.freeze({
+    normal: Object.freeze({ hp: 1, speed: 57, reward: 12, livesLost: 1 }),
+    fast: Object.freeze({ hp: 0.7, speed: 88, reward: 12, livesLost: 1 }),
+    brute: Object.freeze({ hp: 1.9, speed: 43, reward: 20, livesLost: 1 }),
+    boss: Object.freeze({ hp: 4.8, speed: 40, reward: 70, livesLost: 5 }),
+  }),
+  towers: Object.freeze({
+    maxLevel: 5, damagePerLevel: 0.62, rangePerLevel: 9, attackSpeedPerLevel: 0.12,
+    upgradeCostFactor: 0.75, upgradeCostGrowth: 1.55, sellRefund: 0.7,
+  }),
+  slow: Object.freeze({ elements: Object.freeze(['ice', 'gelo', 'frost']), seconds: 1.5, factor: 0.65 }),
+  projectileSeconds: 0.22,
+});
 
-/** Enemy health grows 18% per stage: the Faxineiro alone can still clear stage 12 with good play. */
-export const STAGE_STEP = 0.18;
+export const WAVE_BREAK_SECONDS = BALANCE.waveBreakSeconds;
+export const STAGE_STEP = BALANCE.stageStep;
 export const stageDifficulty = stage => 1 + (stage - 1) * STAGE_STEP;
 
 const success = (extra = {}) => ({ ok: true, ...extra });
 const failure = reason => ({ ok: false, reason });
 const playable = state => state.status === 'preparing' || state.status === 'running';
+
+/** Which enemy fills a slot of a wave. */
+export function enemyKind(wave, index, count) {
+  const w = BALANCE.waves;
+  if (wave === BALANCE.wavesPerStage && index === count - 1) return 'boss';
+  if (wave >= w.bruteFromWave && index % w.bruteEvery === w.bruteSlot) return 'brute';
+  if (wave >= w.fastFromWave && index % w.fastEvery === w.fastSlot) return 'fast';
+  return 'normal';
+}
 
 export class GameEngine {
   constructor({ stage = 1, heroes = [], onEvent = () => {} } = {}) {
@@ -27,7 +70,7 @@ export class GameEngine {
     this.map = mapForStage(stageNumber);
     this.state = {
       status: 'preparing', stage: stageNumber,
-      wave: 0, totalWaves: 5, lives: 20, qi: 180,
+      wave: 0, totalWaves: BALANCE.wavesPerStage, lives: BALANCE.startLives, qi: BALANCE.startQi,
       towers: [], enemies: [], projectiles: [], kills: 0, speed: 1,
       spawned: 0, waveEnemyCount: 0,
       // Seconds until the next wave starts by itself; null while it waits for the player.
@@ -44,11 +87,12 @@ export class GameEngine {
   }
 
   getTowerStats(tower) {
+    const t = BALANCE.towers;
     const level = Math.max(1, tower.level || 1);
     return {
-      damage: Math.round(tower.hero.damage * (1 + (level - 1) * 0.62)),
-      range: tower.hero.range + (level - 1) * 9,
-      attackSpeed: Math.round(tower.hero.attackSpeed * (1 + (level - 1) * 0.12) * 100) / 100,
+      damage: Math.round(tower.hero.damage * (1 + (level - 1) * t.damagePerLevel)),
+      range: tower.hero.range + (level - 1) * t.rangePerLevel,
+      attackSpeed: Math.round(tower.hero.attackSpeed * (1 + (level - 1) * t.attackSpeedPerLevel) * 100) / 100,
       level,
     };
   }
@@ -63,7 +107,8 @@ export class GameEngine {
   }
 
   getNextUpgradeCost(tower) {
-    return tower.level >= 5 ? null : Math.round(tower.hero.cost * 0.75 * Math.pow(1.55, tower.level - 1));
+    const t = BALANCE.towers;
+    return tower.level >= t.maxLevel ? null : Math.round(tower.hero.cost * t.upgradeCostFactor * Math.pow(t.upgradeCostGrowth, tower.level - 1));
   }
 
   placeTower(hero, padId) {
@@ -111,14 +156,14 @@ export class GameEngine {
     const index = this.state.towers.findIndex(item => item.id === towerId);
     if (index < 0) return failure('Selecione uma torre.');
     const [tower] = this.state.towers.splice(index, 1);
-    const refund = Math.floor(tower.spent * 0.7);
+    const refund = Math.floor(tower.spent * BALANCE.towers.sellRefund);
     this.state.qi += refund;
     this._emit('sold', { tower, refund });
     return success({ refund });
   }
 
   setSpeed(speed) {
-    if (speed !== 1 && speed !== 2) return failure('Velocidade inválida.');
+    if (!BALANCE.speeds.includes(speed)) return failure('Velocidade inválida.');
     this.state.speed = speed;
     return success();
   }
@@ -127,22 +172,17 @@ export class GameEngine {
     if (this.state.status !== 'preparing' || this.state.wave >= this.state.totalWaves) {
       return failure('Aguarde a conclusão da onda atual.');
     }
+    const w = BALANCE.waves;
     this.state.nextWaveIn = null;
     this.state.wave++;
     const wave = this.state.wave;
-    const count = 5 + wave * 2;
+    const count = w.baseCount + wave * w.countPerWave;
     const stageScale = stageDifficulty(this.state.stage);
     this._spawnQueue = Array.from({ length: count }, (_, index) => {
-      const kind = wave === 5 && index === count - 1 ? 'boss'
-        : wave >= 3 && index % 5 === 3 ? 'brute'
-        : wave >= 2 && index % 4 === 2 ? 'fast' : 'normal';
-      const baseHp = (23 + wave * 8) * stageScale;
-      return {
-        kind,
-        hp: Math.round(baseHp * (kind === 'boss' ? 4.8 : kind === 'brute' ? 1.9 : kind === 'fast' ? 0.7 : 1)),
-        speed: (kind === 'boss' ? 40 : kind === 'fast' ? 88 : kind === 'brute' ? 43 : 57) + wave * 1.5,
-        reward: kind === 'boss' ? 70 : kind === 'brute' ? 20 : 12,
-      };
+      const kind = enemyKind(wave, index, count);
+      const rules = BALANCE.enemies[kind];
+      const baseHp = (w.baseHp + wave * w.hpPerWave) * stageScale;
+      return { kind, hp: Math.round(baseHp * rules.hp), speed: rules.speed + wave * w.speedPerWave, reward: rules.reward };
     });
     this.state.spawned = 0;
     this.state.waveEnemyCount = count;
@@ -156,15 +196,15 @@ export class GameEngine {
     if (!Number.isFinite(dtSeconds) || dtSeconds <= 0) return;
     // The break between waves counts real seconds, whatever the game speed, so there is always time to prepare.
     if (this.state.status === 'preparing' && this.state.nextWaveIn !== null) {
-      this.state.nextWaveIn = Math.max(0, this.state.nextWaveIn - Math.min(dtSeconds, 1));
+      this.state.nextWaveIn = Math.max(0, this.state.nextWaveIn - Math.min(dtSeconds, BALANCE.maxFrameSeconds));
       if (this.state.nextWaveIn === 0) this.startWave();
       return;
     }
     if (this.state.status !== 'running') return;
     // Tiny simulation steps keep targeting and movement consistent at any frame rate.
-    let remaining = Math.min(dtSeconds, 1) * this.state.speed;
+    let remaining = Math.min(dtSeconds, BALANCE.maxFrameSeconds) * this.state.speed;
     while (remaining > 0.000001 && this.state.status === 'running') {
-      const step = Math.min(remaining, 1 / 30);
+      const step = Math.min(remaining, BALANCE.simulationStep);
       this._step(step);
       remaining -= step;
     }
@@ -180,11 +220,11 @@ export class GameEngine {
         x: this.map.path[0].x, y: this.map.path[0].y, progress: 0, slowRemaining: 0, facing: 1,
       });
       state.spawned++;
-      this._spawnTimer += state.wave === 5 ? 0.85 : 1.05;
+      this._spawnTimer += state.wave === state.totalWaves ? BALANCE.waves.finalWaveSpawnInterval : BALANCE.waves.spawnInterval;
     }
     for (const enemy of state.enemies) {
       enemy.slowRemaining = Math.max(0, enemy.slowRemaining - dt);
-      enemy.progress += enemy.speed * dt * (enemy.slowRemaining > 0 ? 0.65 : 1);
+      enemy.progress += enemy.speed * dt * (enemy.slowRemaining > 0 ? BALANCE.slow.factor : 1);
       const previousX = enemy.x;
       Object.assign(enemy, pointOnPath(enemy.progress, this.map));
       // Sprites look right; they turn only on horizontal stretches of the road.
@@ -193,7 +233,7 @@ export class GameEngine {
     }
     const escaped = state.enemies.filter(enemy => enemy.progress >= this.map.pathLength);
     for (const enemy of escaped) {
-      state.lives = Math.max(0, state.lives - (enemy.kind === 'boss' ? 5 : 1));
+      state.lives = Math.max(0, state.lives - BALANCE.enemies[enemy.kind].livesLost);
       this._emit('escaped', { enemy });
     }
     state.enemies = state.enemies.filter(enemy => enemy.progress < this.map.pathLength);
@@ -206,6 +246,7 @@ export class GameEngine {
     for (const tower of state.towers) {
       tower.cooldown = Math.max(0, tower.cooldown - dt);
       if (tower.cooldown > 0) continue;
+      // Each tower hits the enemy furthest along the road within its range.
       const target = state.enemies.filter(enemy => enemy.hp > 0 &&
         Math.hypot(enemy.x - tower.x, enemy.y - tower.y) <= tower.range)
         .sort((a, b) => b.progress - a.progress)[0];
@@ -215,11 +256,12 @@ export class GameEngine {
         id: `projectile-${this._nextId++}`, x: tower.x, y: tower.y,
         fromX: tower.x, fromY: tower.y, targetX: target.x, targetY: target.y,
         targetId: target.id, color: tower.hero.color || '#9bd4b6',
-        lifetime: 0.22, maxLifetime: 0.22,
+        lifetime: BALANCE.projectileSeconds, maxLifetime: BALANCE.projectileSeconds,
       };
       state.projectiles.push(projectile);
+      // Damage lands at once; the projectile is only the visual.
       target.hp -= tower.damage;
-      if (['ice', 'gelo', 'frost'].includes(String(tower.hero.element).toLowerCase())) target.slowRemaining = 1.5;
+      if (BALANCE.slow.elements.includes(String(tower.hero.element).toLowerCase())) target.slowRemaining = BALANCE.slow.seconds;
       if (target.hp <= 0) {
         state.qi += target.reward;
         state.kills++;
