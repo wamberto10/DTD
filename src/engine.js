@@ -48,6 +48,15 @@ export class GameEngine {
     };
   }
 
+  /** Updates the recruited heroes (for example after a new star); towers already placed get the new attributes. */
+  setHeroes(heroes = []) {
+    this.heroes = heroes;
+    for (const tower of this.state.towers) {
+      const hero = heroes.find(item => item.id === tower.hero.id);
+      if (hero) Object.assign(tower, { hero }, this.getTowerStats({ ...tower, hero }));
+    }
+  }
+
   getNextUpgradeCost(tower) {
     return tower.level >= 5 ? null : Math.round(tower.hero.cost * 0.75 * Math.pow(1.55, tower.level - 1));
   }

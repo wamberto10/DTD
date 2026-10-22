@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { GameEngine, MAP, mapForStage, pointOnPath } from '../src/engine.js';
 import { HEROES, STAGES } from '../src/data.js';
 import { createProfile, grantVictory } from '../src/profile.js';
+import { withStars } from '../src/stars.js';
 
 const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
 const longestRange = Math.max(...HEROES.map(hero => hero.range));
@@ -192,4 +193,18 @@ test('2× speed advances enemies twice as far and invalid time inputs are ignore
   const progress = normal.state.enemies[0].progress;
   normal.update(NaN); normal.update(-1);
   assert.equal(normal.state.enemies[0].progress, progress);
+});
+
+test('a new star upgrades the towers already on the map', () => {
+  const game = new GameEngine({ heroes: [cleaner] });
+  game.state.qi = 5000;
+  const { tower } = game.placeTower(cleaner, 'p1');
+  game.upgradeTower(tower.id);
+  const before = tower.damage;
+  game.setHeroes([withStars(cleaner, 3)]);
+  assert.equal(tower.hero.stars, 3);
+  assert.equal(tower.level, 2);
+  assert.equal(tower.damage, Math.round(withStars(cleaner, 3).damage * 1.62));
+  assert.ok(tower.damage > before);
+  assert.equal(game.getNextUpgradeCost(tower), Math.round(cleaner.cost * 0.75 * 1.55));
 });

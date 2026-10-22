@@ -28,6 +28,7 @@ const ICONS = {
   settings: '<path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 3 3-1 2 2 3-2 1-3 3-1 2-3-2-2 1-3-3-3-3 1-2-2z"/><circle cx="12" cy="11" r="3"/>',
   home: '<path d="m2 11 10-9 10 9M5 9v12h14V9M9 21v-8h6v8"/>',
   star: '<path d="m12 2 3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>',
+  fragment: '<path d="m12 2 8 7-5 13H9L4 9z"/><path d="m12 2-1 11 4 9M4 9l7 4 9-4"/>',
 };
 
 export function icon(name, size = 20) {

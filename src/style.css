@@ -256,3 +256,38 @@
 .map-container.painted .map-level strong{font-size:15px!important;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-container.painted .map-level>span{font-size:6px!important}
 .map-container.painted .map-level small{display:none}
+
+/* Hero stars and fragments */
+.star-row{display:inline-flex;gap:3px;align-items:center;line-height:0}
+.star-row i{color:#5d5a52;display:inline-flex}
+.star-row i svg{fill:#00000033}
+.star-row i.filled{color:var(--star,#e9c46f)}
+.star-row i.filled svg{fill:currentColor;filter:drop-shadow(0 0 3px color-mix(in srgb,currentColor,transparent 55%))}
+.star-row i.next{color:var(--star,#9fd28a);animation:star-pulse 1.6s ease-in-out infinite}
+.star-row i.next svg{fill:color-mix(in srgb,currentColor,transparent 80%)}
+@keyframes star-pulse{50%{opacity:.45}}
+.star-panel{margin:18px auto 0;padding:14px 14px 12px;border:1px solid #4b5e44;background:#18261dcc;text-align:center}
+.star-panel.locked p{font-size:8px;color:#9b9aa3;margin-top:9px}
+.star-panel-head{display:flex;align-items:center;justify-content:center;gap:10px}
+.star-panel-head>span{font-size:9px;color:#c9c19a;letter-spacing:.5px}
+.star-tier{color:var(--star)!important;font-weight:600}
+.star-bonus{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.star-bonus>div{display:flex;align-items:center;justify-content:center;gap:5px;font-size:9px;color:#b8b4a2;background:#0f1a14aa;padding:7px 6px;border:1px solid #33402f}
+.star-bonus span{color:#8f9c86;margin-right:2px}
+.star-bonus b{color:#e7e0c2;font-weight:600}
+.star-bonus svg{width:11px;color:#9fd28a}
+.star-bonus em{font-style:normal;color:#9fd28a;font-weight:600}
+.star-fragments{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:12px;font-size:10px;color:#a9a6b0}
+.star-fragments svg{width:15px;color:#d9a85f}
+.star-fragments b{font-size:13px;color:#e08d7a}
+.star-fragments.enough b{color:#9fd28a}
+.star-button{margin-top:10px;width:100%}
+.star-button[disabled]{opacity:.45;cursor:not-allowed}
+.star-hint,.star-max{font-size:7px;color:#87858f;margin-top:8px}
+.star-max{display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;color:#e9c46f}
+.star-max svg{width:14px}
+.star-badge{display:flex;align-items:center;gap:4px;padding:4px 5px}
+.star-badge.ready{border-color:#9fd28a;box-shadow:0 0 8px #9fd28a55}
+.star-badge b{color:#9fd28a;font-size:9px;line-height:1}
+.fragment-badge{color:#f0d79a;border-color:#d9a85f88}
+.hero-card-info .card-stars{color:#e9c46f!important;font-weight:600}

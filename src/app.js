@@ -1,6 +1,7 @@
 import { GameEngine, MAP } from './engine.js';
 import { HEROES, RARITIES, STAGES, WORLD, GACHA_COST, GACHA_TEN_COST } from './data.js';
-import { loadProfile, saveProfile, summon, grantVictory } from './profile.js';
+import { loadProfile, saveProfile, summon, grantVictory, raiseStar } from './profile.js';
+import { FRAGMENTS_PER_COPY, STARS_PER_TIER, nextStarCost, starBonusPercent, starTier, withStars } from './stars.js';
 import { icon, portrait, renderTerrain } from './art.js';
 import { renderEnemy, renderProjectile, renderPad } from './pixel-units.js';
 import { hasPaintedMap } from './maps.js';
@@ -22,7 +23,21 @@ let lastTowerMarkup = '';
 const heroById = id => HEROES.find(h => h.id === id);
 const rarityOf = hero => RARITIES.find(r => r.id === hero.rarity);
 const stageInfo = () => STAGES.find(s => s.id === ui.stage) || STAGES[0];
-const ownedHeroes = () => profile.owned.map(heroById).filter(Boolean);
+const starsOf = id => profile.stars?.[id] || 0;
+// The hero as it fights: base attributes plus the bonus of its stars.
+const fighter = id => withStars(heroById(id), starsOf(id));
+const ownedHeroes = () => profile.owned.filter(heroById).map(fighter);
+// Five slots: stars of the current group in its colour, the rest still showing the previous group's colour.
+const starRow = (stars, size = 14, next = false) => {
+  const tier = starTier(stars);
+  const slots = Array.from({ length: STARS_PER_TIER }, (_, i) => {
+    if (next && i === tier.lit) return `<i class="next" style="--star:${tier.color}">${icon('star', size)}</i>`;
+    const color = i < tier.lit ? tier.color : tier.previous?.color;
+    return `<i class="${color ? 'filled' : ''}" ${color ? `style="--star:${color}"` : ''}>${icon('star', size)}</i>`;
+  });
+  return `<span class="star-row" aria-label="${stars} estrelas, ${tier.name}">${slots.join('')}</span>`;
+};
+const canRaiseStar = id => profile.owned.includes(id) && nextStarCost(starsOf(id)) !== null && (profile.fragments?.[id] || 0) >= nextStarCost(starsOf(id));
 const persist = () => { if (!saveProfile(profile)) toast('O navegador não permitiu salvar. Seu progresso vale nesta sessão.'); };
 const escapeText = value => String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 engine = makeEngine();
@@ -110,7 +125,7 @@ function renderDefense() {
 
 function renderSquad() {
   const heroes = ownedHeroes();
-  const cards = heroes.map(hero => { const rarity = rarityOf(hero); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${ui.selectedHero === hero.id ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span>NV. 1</span></span></div></button>`; });
+  const cards = heroes.map(hero => { const rarity = rarityOf(hero); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${ui.selectedHero === hero.id ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
   while (cards.length < 5) cards.push(`<button class="hero-card empty-hero" data-action="navigate" data-view="recruit"><div>${icon('lock', 22)}<span>Um novo destino</span></div><span>Recrute um herói ${icon('plus', 12)}</span></button>`);
   return cards.join('');
 }
@@ -132,12 +147,12 @@ function renderCommandPanel() {
 function renderRecruit() {
   return `${pageHeading('O DESTINO REÚNE OS ESCOLHIDOS', 'Pavilhão de recrutamento<span>.</span>', 'Além das montanhas, novos aliados aguardam o seu chamado.')}
   <section class="summon-banner"><div class="summon-copy"><span class="event-badge">${icon('sparkles', 14)} RECRUTAMENTO PERMANENTE</span><h2>Todo encontro<br>muda o destino.</h2><p>Do primeiro discípulo ao mestre supremo.<br>Invoque cultivadores e descubra o seu potencial.</p><div class="summon-highlights"><span>7 raridades</span><i></i><span>14 cultivadores</span><i></i><span>Uma jornada sem limites</span></div></div><div class="summon-art"><div class="summon-ring ring-one"></div><div class="summon-ring ring-two"></div><span class="summon-rune rune-one">道</span><span class="summon-rune rune-two">气</span><div class="banner-hero banner-hero-left">${portrait(HEROES.find(h => h.rarity === 'legendary'), 'banner')}</div><div class="banner-hero banner-hero-right">${portrait(HEROES.find(h => h.rarity === 'ur'), 'banner')}</div><div class="banner-hero banner-hero-main">${portrait(HEROES.find(h => h.rarity === 'urplus'), 'banner')}</div><span class="summon-particle p1"></span><span class="summon-particle p2"></span><span class="summon-particle p3"></span></div></section>
-  <div class="recruit-bottom"><section class="summon-controls"><div><span class="eyebrow">CRISTAIS DO DAO</span><h2>Responda ao chamado.</h2><p>Cada invocação garante um herói. Repetidos entram na sua contagem de cópias.</p></div><div class="summon-buttons"><button class="secondary-button summon-single" data-action="summon" data-count="1" ${profile.crystals < GACHA_COST ? 'disabled' : ''}>Invocar 1 herói <span>${icon('gem', 16)} ${GACHA_COST}</span></button><button class="primary-button summon-ten" data-action="summon" data-count="10" ${profile.crystals < GACHA_TEN_COST ? 'disabled' : ''}>${icon('sparkles', 17)} Invocar 10 heróis <span>${icon('gem', 16)} ${GACHA_TEN_COST}</span><small>10% DE DESCONTO</small></button></div><div class="summon-balance">Seu saldo: <b>${profile.crystals} cristais</b><span>Ganhe mais concluindo fases.</span></div></section><section class="probability-card"><div class="section-heading"><h2>O destino em números</h2>${icon('gem', 17)}</div><p>Chances por invocação · sem garantia acumulada</p><div class="probability-grid">${RARITIES.map(r => `<div><span><i style="background:${r.color}"></i>${r.name}</span><b>${(r.chance * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b></div>`).join('')}</div></section></div>`;
+  <div class="recruit-bottom"><section class="summon-controls"><div><span class="eyebrow">CRISTAIS DO DAO</span><h2>Responda ao chamado.</h2><p>Cada invocação garante um herói. Repetidos viram ${FRAGMENTS_PER_COPY} fragmentos para elevar as estrelas dele.</p></div><div class="summon-buttons"><button class="secondary-button summon-single" data-action="summon" data-count="1" ${profile.crystals < GACHA_COST ? 'disabled' : ''}>Invocar 1 herói <span>${icon('gem', 16)} ${GACHA_COST}</span></button><button class="primary-button summon-ten" data-action="summon" data-count="10" ${profile.crystals < GACHA_TEN_COST ? 'disabled' : ''}>${icon('sparkles', 17)} Invocar 10 heróis <span>${icon('gem', 16)} ${GACHA_TEN_COST}</span><small>10% DE DESCONTO</small></button></div><div class="summon-balance">Seu saldo: <b>${profile.crystals} cristais</b><span>Ganhe mais concluindo fases.</span></div></section><section class="probability-card"><div class="section-heading"><h2>O destino em números</h2>${icon('gem', 17)}</div><p>Chances por invocação · sem garantia acumulada</p><div class="probability-grid">${RARITIES.map(r => `<div><span><i style="background:${r.color}"></i>${r.name}</span><b>${(r.chance * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b></div>`).join('')}</div></section></div>`;
 }
 
 function renderHeroes() {
   const filtered = HEROES.filter(hero => ui.filter === 'all' || ui.filter === 'owned' && profile.owned.includes(hero.id) || ui.filter === hero.rarity);
-  return `${pageHeading('ALIADOS PARA A ETERNIDADE', 'Cada herói, uma história<span>.</span>', 'Conheça seus cultivadores e os mestres que ainda cruzarão seu caminho.', `<span class="collection-count">${icon('users', 18)}<b>${profile.owned.length}</b> / ${HEROES.length} descobertos</span>`)}<div class="collection-filters"><button data-action="filter" data-filter="all" class="filter-chip ${ui.filter === 'all' ? 'active' : ''}">Todos</button><button data-action="filter" data-filter="owned" class="filter-chip ${ui.filter === 'owned' ? 'active' : ''}">Meus heróis</button>${RARITIES.map(r => `<button class="filter-chip ${ui.filter === r.id ? 'active' : ''}" data-action="filter" data-filter="${r.id}" style="--rarity-color:${r.color}">${r.name}</button>`).join('')}</div><div class="collection-grid">${filtered.map(hero => { const r = rarityOf(hero); const owned = profile.owned.includes(hero.id); return `<button class="collection-card ${owned ? '' : 'unowned'}" style="--hero-color:${r.color}" data-action="hero-detail" data-id="${hero.id}"><div class="collection-portrait">${portrait(hero)}<span class="collection-rarity">${r.name}</span>${owned ? `<span class="copy-badge">×${profile.copies[hero.id] || 1}</span>` : `<span class="undiscovered">${icon('lock', 16)} NÃO RECRUTADO</span>`}</div><div class="collection-info"><small>${escapeText(hero.title)}</small><h3>${escapeText(hero.name)}</h3><div><span>${icon('sword', 13)} ${hero.damage}</span><span>${icon('qi', 13)} ${hero.cost} Qi</span>${icon('arrowRight', 14)}</div></div></button>`; }).join('') || '<div class="empty-state">Nenhum cultivador nesta categoria. Seu próximo aliado pode estar no pavilhão.</div>'}</div>`;
+  return `${pageHeading('ALIADOS PARA A ETERNIDADE', 'Cada herói, uma história<span>.</span>', 'Conheça seus cultivadores e os mestres que ainda cruzarão seu caminho.', `<span class="collection-count">${icon('users', 18)}<b>${profile.owned.length}</b> / ${HEROES.length} descobertos</span>`)}<div class="collection-filters"><button data-action="filter" data-filter="all" class="filter-chip ${ui.filter === 'all' ? 'active' : ''}">Todos</button><button data-action="filter" data-filter="owned" class="filter-chip ${ui.filter === 'owned' ? 'active' : ''}">Meus heróis</button>${RARITIES.map(r => `<button class="filter-chip ${ui.filter === r.id ? 'active' : ''}" data-action="filter" data-filter="${r.id}" style="--rarity-color:${r.color}">${r.name}</button>`).join('')}</div><div class="collection-grid">${filtered.map(hero => { const r = rarityOf(hero); const owned = profile.owned.includes(hero.id); const ready = canRaiseStar(hero.id); return `<button class="collection-card ${owned ? '' : 'unowned'}" style="--hero-color:${r.color}" data-action="hero-detail" data-id="${hero.id}"><div class="collection-portrait">${portrait(hero)}<span class="collection-rarity">${r.name}</span>${owned ? `<span class="copy-badge star-badge ${ready ? 'ready' : ''}" title="${ready ? 'Pronto para elevar estrela' : `${profile.fragments?.[hero.id] || 0} fragmentos`}">${starRow(starsOf(hero.id), 9)}${ready ? '<b>↑</b>' : ''}</span>` : `<span class="undiscovered">${icon('lock', 16)} NÃO RECRUTADO</span>`}</div><div class="collection-info"><small>${escapeText(hero.title)}</small><h3>${escapeText(hero.name)}</h3><div><span>${icon('sword', 13)} ${owned ? fighter(hero.id).damage : hero.damage}</span><span>${icon('qi', 13)} ${hero.cost} Qi</span>${icon('arrowRight', 14)}</div></div></button>`; }).join('') || '<div class="empty-state">Nenhum cultivador nesta categoria. Seu próximo aliado pode estar no pavilhão.</div>'}</div>`;
 }
 
 function renderGuide() {
@@ -201,18 +216,36 @@ function showResult(victory) {
   showModal(`<div class="result-icon ${victory ? '' : 'defeat'}">${icon(victory ? 'trophy' : 'shield', 38)}</div><span class="eyebrow">${victory ? 'O DAO RECONHECE SUA FORÇA' : 'TODA QUEDA ENSINA'}</span><h2 id="modal-title">${victory ? 'O território está a salvo.' : 'Seu caminho continua.'}</h2><p class="modal-description">${victory ? `${escapeText(stageInfo().name)} foi protegido e ${escapeText(stageInfo().enemies.boss)} caiu. Seus cultivadores conquistaram uma nova vitória.` : 'Os invasores passaram pela sua defesa. Repense as posições e cultive seu poder entre as ondas.'}</p><div class="result-stats"><span><b>${engine.state.kills}</b>inimigos derrotados</span><span><b>${engine.state.wave}/${engine.state.totalWaves}</b>ondas enfrentadas</span></div>${victory ? `<div class="victory-reward">${icon('gem', 26)}<div><b>+${ui.reward?.reward || 0} Cristais do Dao</b><span>${ui.reward?.firstClear ? 'Recompensa de primeira conclusão' : 'Recompensa de nova conclusão'}</span></div></div><button class="primary-button" data-action="result-next">${ui.stage < STAGES.length ? 'Seguir para a próxima fase' : 'Escolher uma nova jornada'} ${icon('arrowRight', 16)}</button><button class="text-button" data-action="result-recruit">Visitar o pavilhão de recrutamento</button>` : `<button class="primary-button" data-action="retry">${icon('refresh', 16)} Tentar novamente</button>`}`, 'result-modal');
 }
 
+function starPanel(id, owned) {
+  if (!owned) return `<section class="star-panel locked">${starRow(0, 18)}<p>Recrute este herói para começar a elevar suas estrelas.</p></section>`;
+  const stars = starsOf(id);
+  const tier = starTier(stars);
+  const cost = nextStarCost(stars);
+  const fragments = profile.fragments?.[id] || 0;
+  const now = starBonusPercent(stars);
+  const next = cost === null ? null : starBonusPercent(stars + 1);
+  const bonus = (label, key) => `<div><span>${label}</span><b>+${now[key]}%</b>${next ? `${icon('chevronRight', 12)}<em>+${next[key]}%</em>` : ''}</div>`;
+  return `<section class="star-panel"><div class="star-panel-head">${starRow(stars, 20, true)}<span class="star-tier" style="--star:${tier.color}">${tier.name} · ${stars} ${stars === 1 ? 'estrela' : 'estrelas'}</span></div>
+    <div class="star-bonus">${bonus('Dano', 'damage')}${bonus('Ataques/s', 'attackSpeed')}</div>
+    ${cost === null
+      ? `<p class="star-max">${icon('trophy', 15)} Este herói chegou ao limite de estrelas.</p>`
+      : `<div class="star-fragments ${fragments >= cost ? 'enough' : ''}">${icon('fragment', 16)}<b>${fragments}</b>/${cost} fragmentos</div><button class="primary-button star-button" data-action="star-up" data-id="${id}" ${fragments >= cost ? '' : 'disabled'}>${icon('star', 16)} Elevar estrela</button><p class="star-hint">Cada herói repetido rende ${FRAGMENTS_PER_COPY} fragmentos. A cada ${STARS_PER_TIER} estrelas, a cor muda e o custo dobra.</p>`}
+  </section>`;
+}
+
 function showHero(id) {
-  const hero = heroById(id); if (!hero) return;
-  const r = rarityOf(hero); const owned = profile.owned.includes(id);
-  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p><div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div><button class="primary-button" data-action="${owned ? 'use-hero' : 'result-recruit'}" data-id="${hero.id}">${owned ? 'Selecionar para a defesa' : 'Visitar recrutamento'} ${icon('arrowRight', 16)}</button>`, 'hero-modal');
+  const base = heroById(id); if (!base) return;
+  const r = rarityOf(base); const owned = profile.owned.includes(id);
+  const hero = owned ? fighter(id) : base;
+  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p>${starPanel(id, owned)}<div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div><button class="primary-button" data-action="${owned ? 'use-hero' : 'result-recruit'}" data-id="${hero.id}">${owned ? 'Selecionar para a defesa' : 'Visitar recrutamento'} ${icon('arrowRight', 16)}</button>`, 'hero-modal');
 }
 
 function doSummon(count) {
   const result = summon(profile, count);
   if (!result.ok) return toast(result.reason || 'Cristais insuficientes. Conclua fases para ganhar mais.');
   const before = new Set(profile.owned);
-  profile = result.profile; engine.heroes = ownedHeroes(); persist(); sound('victory'); render();
-  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge">${fresh ? 'NOVO' : '+1 CÓPIA'}</span></div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis adicionados à sua coleção.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
+  profile = result.profile; engine.setHeroes(ownedHeroes()); persist(); sound('victory'); render();
+  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span></div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram na coleção. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
 }
 
 function activate(action, el) {
@@ -224,7 +257,17 @@ function activate(action, el) {
   if (action === 'select-hero') { ui.selectedHero = el.dataset.id; ui.selectedTower = null; render(); }
   if (action === 'select-tower') { ui.selectedTower = el.dataset.id; const tower = engine.state.towers.find(t => String(t.id) === el.dataset.id); ui.selectedTower = tower?.id ?? el.dataset.id; updateHud(true); renderDynamic(); }
   if (action === 'deselect-tower') { ui.selectedTower = null; updateHud(true); renderDynamic(); }
-  if (action === 'place') { const result = engine.placeTower(heroById(ui.selectedHero), el.dataset.id); if (!result.ok) toast(result.reason || 'Não foi possível posicionar o herói.'); else { sound(); ui.selectedTower = null; } updateHud(true); renderDynamic(); }
+  if (action === 'star-up') {
+    const id = el.dataset.id; const result = raiseStar(profile, id);
+    if (!result.ok) return toast(result.reason);
+    profile = result.profile; engine.setHeroes(ownedHeroes()); persist(); sound('victory');
+    render(); showHero(id);
+    const name = heroById(id).name;
+    toast(result.stars % STARS_PER_TIER === 0
+      ? `${name} completou as estrelas de ${starTier(result.stars - 1).name}! As próximas são de ${starTier(result.stars).name}.`
+      : `${name} alcançou ${result.stars} ${result.stars === 1 ? 'estrela' : 'estrelas'}.`);
+  }
+  if (action === 'place') { const result = engine.placeTower(fighter(ui.selectedHero), el.dataset.id); if (!result.ok) toast(result.reason || 'Não foi possível posicionar o herói.'); else { sound(); ui.selectedTower = null; } updateHud(true); renderDynamic(); }
   if (action === 'upgrade') { const result = engine.upgradeTower(ui.selectedTower); if (!result.ok) toast(result.reason || 'Qi insuficiente.'); updateHud(true); renderDynamic(); }
   if (action === 'sell') { const result = engine.sellTower(ui.selectedTower); if (result?.ok === false) toast(result.reason); ui.selectedTower = null; updateHud(true); renderDynamic(); }
   if (action === 'speed') { ui.speed = ui.speed === 1 ? 2 : 1; engine.setSpeed(ui.speed); document.querySelector('#speed-text')?.replaceChildren(`${ui.speed}×`); document.querySelector('.speed-button')?.classList.toggle('fast', ui.speed === 2); }

@@ -1,4 +1,5 @@
 import { HEROES, RARITIES, STAGES, GACHA_COST, GACHA_TEN_COST } from './data.js';
+import { FRAGMENTS_PER_COPY, STAR_SAFETY_CAP, nextStarCost } from './stars.js';
 
 export const STORAGE_KEY = 'dtd-dao-profile-v1';
 
@@ -12,6 +13,8 @@ export function createProfile() {
     crystals: 300,
     owned: ['faxineiro'],
     copies: { faxineiro: 1 },
+    fragments: { faxineiro: 0 },
+    stars: { faxineiro: 0 },
     unlockedStage: 1,
     completedStages: [],
     totalSummons: 0,
@@ -27,6 +30,12 @@ function normalizeProfile(input) {
   const copies = Object.fromEntries(owned.map(id => [id,
     validInteger(input.copies?.[id], 1_000_000) && input.copies[id] > 0 ? input.copies[id] : 1,
   ]));
+  // Profiles saved before stars existed turn every repeated recruit into fragments.
+  const savedFragments = input.fragments && typeof input.fragments === 'object' ? input.fragments : null;
+  const fragments = Object.fromEntries(owned.map(id => [id, savedFragments
+    ? (validInteger(savedFragments[id], 1_000_000) ? savedFragments[id] : 0)
+    : (copies[id] - 1) * FRAGMENTS_PER_COPY]));
+  const stars = Object.fromEntries(owned.map(id => [id, validInteger(input.stars?.[id], STAR_SAFETY_CAP) ? input.stars[id] : 0]));
   // Progress is sequential: malformed data cannot unlock an inaccessible stage.
   const completedStages = [];
   if (Array.isArray(input.completedStages)) {
@@ -40,6 +49,8 @@ function normalizeProfile(input) {
     crystals: validInteger(input.crystals) ? input.crystals : fresh.crystals,
     owned,
     copies,
+    fragments,
+    stars,
     unlockedStage: Math.min(maxStage, completedStages.length + 1),
     completedStages,
     totalSummons: validInteger(input.totalSummons) ? input.totalSummons : 0,
@@ -101,16 +112,41 @@ export function summon(profile, count = 1, rng = Math.random) {
     crystals: current.crystals - cost,
     owned: [...current.owned],
     copies: { ...current.copies },
+    fragments: { ...current.fragments },
+    stars: { ...current.stars },
     totalSummons: current.totalSummons + count,
   };
   const heroes = [];
   for (let index = 0; index < count; index += 1) {
     const hero = drawHero(rng);
     heroes.push(hero);
-    if (!next.owned.includes(hero.id)) next.owned.push(hero.id);
+    // A hero you already have becomes fragments for its stars.
+    if (next.owned.includes(hero.id)) next.fragments[hero.id] += FRAGMENTS_PER_COPY;
+    else { next.owned.push(hero.id); next.fragments[hero.id] = 0; next.stars[hero.id] = 0; }
     next.copies[hero.id] = (next.copies[hero.id] ?? 0) + 1;
   }
   return { ok: true, profile: next, heroes };
+}
+
+/** Spends a hero's fragments to raise it one star. */
+export function raiseStar(profile, heroId) {
+  const current = normalizeProfile(profile);
+  if (!current.owned.includes(heroId)) {
+    return { ok: false, reason: 'Recrute este herói antes de elevar suas estrelas.', profile: current };
+  }
+  const stars = current.stars[heroId];
+  const cost = nextStarCost(stars);
+  if (cost === null) return { ok: false, reason: 'Este herói chegou ao limite de estrelas.', profile: current };
+  const owned = current.fragments[heroId];
+  if (owned < cost) return { ok: false, reason: `Faltam ${cost - owned} fragmentos para a próxima estrela.`, profile: current };
+  return {
+    ok: true, cost, stars: stars + 1,
+    profile: {
+      ...current,
+      fragments: { ...current.fragments, [heroId]: owned - cost },
+      stars: { ...current.stars, [heroId]: stars + 1 },
+    },
+  };
 }
 
 export function grantVictory(profile, stageId) {

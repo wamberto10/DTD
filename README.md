@@ -45,7 +45,7 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 2. Clique em **Iniciar onda**. Os cultivadores atacam automaticamente os inimigos em seu alcance.
 3. Cada eliminação concede Qi. Clique em uma torre para ver seu alcance e melhorá-la até o nível 5. Dispensar uma torre recupera 70% do Qi investido.
 4. Proteja o portal durante as cinco ondas, incluindo o guardião final. Uma vitória libera a próxima fase e concede cristais.
-5. Visite **Recrutamento** para invocar heróis e **Meus heróis** para conferir a coleção, atributos e cópias.
+5. Visite **Recrutamento** para invocar heróis e **Meus heróis** para conferir a coleção e elevar as estrelas dos heróis com os fragmentos.
 
 **Espaço** inicia ou pausa a onda, **2** alterna a velocidade e **Esc** fecha detalhes. A partida pausa ao sair da defesa ou ocultar a aba.
 
@@ -63,7 +63,7 @@ Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida do
 | UR | 1,2% |
 | UR+ | 0,3% |
 
-O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Heróis repetidos aumentam a contagem de cópias, sem bônus de atributos nesta versão. A primeira vitória em cada fase concede de 150 cristais (fase 1) a 425 (fase 12), 25 a mais por fase; repetir uma fase concede 50.
+O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Um herói repetido vira **50 fragmentos** dele. Na ficha do herói, em **Meus heróis**, os fragmentos elevam suas estrelas, sem limite. As estrelas vêm em grupos de cinco: o primeiro grupo (Ouro) custa 25, 25, 25, 50 e 50 fragmentos; cada grupo seguinte muda a cor das estrelas (Rubi, Ametista, Safira, Jade e Celestial) e custa o dobro do anterior (50, 50, 50, 100, 100; depois 100, 100, 100, 200, 200; e assim por diante). Cada estrela soma +10% de dano e +3% de ataques por segundo, também para as torres já posicionadas. Perfis antigos recebem fragmentos pelas cópias repetidas que já tinham. A primeira vitória em cada fase concede de 150 cristais (fase 1) a 425 (fase 12), 25 a mais por fase; repetir uma fase concede 50.
 
 Heróis, cristais e fases concluídas ficam salvos no `localStorage` deste navegador. Qi, torres, melhorias e partidas em andamento são temporários e reiniciam ao trocar de fase, reiniciar ou recarregar. Não há conta, servidor de progressão ou sincronização entre dispositivos.
 
@@ -99,6 +99,7 @@ O comando gera as cópias e atualiza `src/art-manifest.js`. Um cenário novo tam
 
 - `src/engine.js`: simulação do combate, independente da interface.
 - `src/maps.js`: caminho dos inimigos e plataformas de cada cenário.
+- `src/stars.js`: fragmentos, custo e bônus das estrelas dos heróis.
 - `src/data.js`: heróis, raridades, atributos e as 12 fases do Mundo Inicial.
 - `src/chibi-art.js` e `src/art-manifest.js`: arte chibi de heróis, inimigos e cenários.
 - `scripts/preparar-arte.mjs`: gera `public/arte/` a partir de `arte/ia/`.

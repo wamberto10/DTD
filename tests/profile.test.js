@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HEROES, RARITIES, STAGES, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
-import { createProfile, loadProfile, saveProfile, summon, grantVictory, STORAGE_KEY } from '../src/profile.js';
+import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, STORAGE_KEY } from '../src/profile.js';
+import { FRAGMENTS_PER_COPY, STAR_BONUS, nextStarCost, starBonusPercent, starTier, withStars } from '../src/stars.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -50,8 +51,83 @@ test('a draw spends crystals and duplicate draws count copies without duplicatin
   assert.equal(result.profile.crystals, 200);
   assert.deepEqual(result.profile.owned, ['faxineiro']);
   assert.equal(result.profile.copies.faxineiro, 2);
+  assert.equal(result.profile.fragments.faxineiro, FRAGMENTS_PER_COPY);
   assert.equal(result.profile.totalSummons, 1);
   assert.deepEqual(profile, before);
+  // A new hero starts with no fragments and no stars.
+  const fresh = summon(createProfile(), 1, () => 0.99).profile;
+  const newcomer = fresh.owned.at(-1);
+  assert.equal(fresh.fragments[newcomer], 0);
+  assert.equal(fresh.stars[newcomer], 0);
+});
+
+test('star costs come in groups of five, and each new group costs double', () => {
+  const costs = Array.from({ length: 15 }, (_, stars) => nextStarCost(stars));
+  assert.deepEqual(costs, [25, 25, 25, 50, 50, 50, 50, 50, 100, 100, 100, 100, 100, 200, 200]);
+  assert.equal(FRAGMENTS_PER_COPY, 50);
+  // Every group of five has its own colour; the stars of the group in progress are counted from zero.
+  assert.deepEqual([0, 4, 5, 9, 10].map(stars => [starTier(stars).name, starTier(stars).lit]),
+    [['Ouro', 0], ['Ouro', 4], ['Rubi', 0], ['Rubi', 4], ['Ametista', 0]]);
+  assert.equal(starTier(5).previous.name, 'Ouro');
+  assert.notEqual(starTier(4).color, starTier(5).color);
+  assert.equal(starTier(60).name, starTier(30).name, 'Past the last colour, the stars keep it.');
+});
+
+test('fragments raise stars one at a time, past five and with no fixed limit', () => {
+  let profile = { ...createProfile(), fragments: { faxineiro: 24 } };
+  const short = raiseStar(profile, 'faxineiro');
+  assert.equal(short.ok, false);
+  assert.match(short.reason, /Faltam 1 fragmentos/);
+  assert.equal(raiseStar(profile, 'su-lan').ok, false);
+  // Four repeated recruits (200 fragments) complete the first five stars, with 25 left over.
+  profile = { ...profile, fragments: { faxineiro: 4 * FRAGMENTS_PER_COPY } };
+  for (let star = 1; star <= 5; star++) {
+    const before = profile.fragments.faxineiro;
+    const result = raiseStar(profile, 'faxineiro');
+    assert.equal(result.ok, true);
+    assert.equal(result.stars, star);
+    assert.equal(result.profile.fragments.faxineiro, before - result.cost);
+    profile = result.profile;
+  }
+  assert.equal(profile.fragments.faxineiro, 25);
+  assert.equal(raiseStar(profile, 'faxineiro').ok, false, 'The sixth star costs 50.');
+  profile = { ...profile, fragments: { faxineiro: 50 } };
+  const sixth = raiseStar(profile, 'faxineiro');
+  assert.equal(sixth.ok, true);
+  assert.equal(sixth.stars, 6);
+  assert.equal(sixth.cost, 50);
+  // Saved star counts above five survive a reload.
+  const storage = memoryStorage();
+  saveProfile(sixth.profile, storage);
+  assert.equal(loadProfile(storage).stars.faxineiro, 6);
+});
+
+test('each star adds damage and attack speed on top of the base hero', () => {
+  const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
+  assert.equal(withStars(cleaner, 0).damage, cleaner.damage);
+  const seven = withStars(cleaner, 7);
+  assert.equal(seven.stars, 7);
+  assert.equal(seven.damage, Math.round(cleaner.damage * (1 + 7 * STAR_BONUS.damage)));
+  assert.equal(seven.attackSpeed, Math.round(cleaner.attackSpeed * (1 + 7 * STAR_BONUS.attackSpeed) * 100) / 100);
+  assert.equal(seven.range, cleaner.range);
+  assert.equal(seven.cost, cleaner.cost);
+  assert.ok(withStars(cleaner, 8).damage > seven.damage);
+  assert.deepEqual(starBonusPercent(10), { damage: 100, attackSpeed: 30 });
+});
+
+test('profiles saved before stars turn repeated copies into fragments', () => {
+  const storage = memoryStorage();
+  storage.setItem(STORAGE_KEY, JSON.stringify({
+    version: 1, crystals: 120, owned: ['faxineiro', 'su-lan'], copies: { faxineiro: 4, 'su-lan': 1 },
+    unlockedStage: 2, completedStages: [1], totalSummons: 4,
+  }));
+  const restored = loadProfile(storage);
+  assert.deepEqual(restored.fragments, { faxineiro: 3 * FRAGMENTS_PER_COPY, 'su-lan': 0 });
+  assert.deepEqual(restored.stars, { faxineiro: 0, 'su-lan': 0 });
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...restored, fragments: { faxineiro: -3, 'su-lan': 1.5 }, stars: { faxineiro: 999, 'su-lan': 9 } }));
+  const cleaned = loadProfile(storage);
+  assert.deepEqual(cleaned.fragments, { faxineiro: 0, 'su-lan': 0 });
+  assert.deepEqual(cleaned.stars, { faxineiro: 0, 'su-lan': 9 });
 });
 
 test('ten draws apply the discount and cannot spend unavailable crystals', () => {
