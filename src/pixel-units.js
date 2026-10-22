@@ -1,8 +1,32 @@
 // Small sprites use a two-pixel grid so movement never blurs their contours.
+import { enemyArt } from './chibi-art.js';
+
 const rect = (x, y, width, height, fill, extra = '') =>
   `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" ${extra}/>`;
 
-export function renderEnemy(enemy) {
+// On-map height of each painted enemy kind, in battle units.
+const ART_HEIGHT = { normal: 50, fast: 46, brute: 62, boss: 92 };
+
+function renderPaintedEnemy(enemy, art) {
+  const height = ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal;
+  const width = Math.round(height * art.w / art.h);
+  const x = Math.round(enemy.x), feet = Math.round(enemy.y + 12), top = feet - height;
+  // The pictures look right; mirror them around their own centre when walking left.
+  const flip = enemy.facing < 0 ? ` transform="translate(${2 * x},0) scale(-1,1)"` : '';
+  const barWidth = Math.max(28, Math.min(width - 8, enemy.kind === 'boss' ? 84 : 48));
+  const health = Math.max(0, Math.round(barWidth * enemy.hp / enemy.maxHp));
+  const barX = x - Math.round(barWidth / 2);
+  return `<g class="enemy painted-enemy" data-kind="${enemy.kind}">
+    <ellipse cx="${x}" cy="${feet - 2}" rx="${Math.round(width * 0.3)}" ry="5" fill="#081210" opacity=".38"/>
+    <image href="${art.url}" x="${x - Math.round(width / 2)}" y="${top}" width="${width}" height="${height}"${flip}/>
+    ${rect(barX - 1, top - 9, barWidth + 2, 5, '#1b2631')}
+    ${rect(barX, top - 8, health, 3, enemy.kind === 'boss' ? '#e7a18a' : '#c4d48d')}
+  </g>`;
+}
+
+export function renderEnemy(enemy, stage) {
+  const art = stage ? enemyArt(stage, enemy.kind) : null;
+  if (art) return renderPaintedEnemy(enemy, art);
   const boss = enemy.kind === 'boss';
   const brute = enemy.kind === 'brute';
   const fast = enemy.kind === 'fast';
@@ -55,7 +79,14 @@ export function renderProjectile(projectile) {
   </g>`;
 }
 
-export function renderPad(pad, tower, selectedHeroName) {
+export function renderPad(pad, tower, selectedHeroName, painted = false) {
+  if (painted) {
+    // The stone platform is already in the painting: only a light marker, so the art stays visible.
+    return `<g class="map-pad painted-pad ${tower ? 'occupied' : ''}" data-action="${tower ? 'select-tower' : 'place'}" data-id="${tower ? tower.id : pad.id}" role="button" tabindex="${tower ? '-1' : '0'}" aria-label="${tower ? `${tower.hero.name}, nível ${tower.level}` : `Posicionar ${selectedHeroName} na posição ${pad.id}`}" transform="translate(${pad.x},${pad.y})">
+    ${tower ? '' : '<circle r="19"/><path d="M-5 0H5M0-5V5"/>'}
+    <rect x="-27" y="-27" width="54" height="54" fill="transparent" pointer-events="all"/>
+  </g>`;
+  }
   const face = 'M-10-24H10V-22H18V-18H22V-10H24V10H22V18H18V22H10V24H-10V22H-18V18H-22V10H-24V-10H-22V-18H-18V-22H-10Z';
   return `<g class="map-pad pixel-pad ${tower ? 'occupied' : ''}" data-action="${tower ? 'select-tower' : 'place'}" data-id="${tower ? tower.id : pad.id}" role="button" tabindex="${tower ? '-1' : '0'}" aria-label="${tower ? `${tower.hero.name}, nível ${tower.level}` : `Posicionar ${selectedHeroName} na posição ${pad.id}`}" transform="translate(${pad.x},${pad.y})" shape-rendering="crispEdges">
     <path d="${face}" class="pixel-pad-shadow" transform="translate(0,4)"/>

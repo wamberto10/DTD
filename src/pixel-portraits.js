@@ -1,4 +1,7 @@
 // Original, grid-drawn cultivators. One logical pixel is four SVG units.
+// Heroes with painted chibi art (public/arte/herois) use it instead.
+import { heroArt } from './chibi-art.js';
+
 const INK = '#10252b';
 const SKIN = { skin: '#e9bd8c', light: '#f8d7a1', shade: '#b97962' };
 const portraitCache = new Map();
@@ -195,6 +198,14 @@ export function portrait(hero, variant = 'card') {
   if (portraitCache.has(cacheKey)) return portraitCache.get(cacheKey);
   const look = looks[hero.id] || looks.faxineiro;
   const transparent = variant === 'tower' || variant === 'banner';
+  const chibi = heroArt(hero);
+  if (chibi) {
+    // Same 120 × 140 frame as the pixel drawing, so every card, banner and tower keeps its layout.
+    const backdrop = transparent ? '' : `<g transform="scale(4)" shape-rendering="crispEdges">${background(look.robe, hero.element)}</g>`;
+    const svg = `<svg class="hero-portrait chibi-portrait" viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">${backdrop}<image href="${chibi.url}" x="-6" y="4" width="132" height="136" preserveAspectRatio="xMidYMax meet"/></svg>`;
+    portraitCache.set(cacheKey, svg);
+    return svg;
+  }
   let art = transparent ? '' : background(look.robe, hero.element);
   art += aura(hero, look, transparent);
   if (look.weapon === 'sun') art += drawPixels(['....GGGG....', '..GG....GG..', '.G........G.', 'G..........G', 'G..........G', 'G..........G', '.G........G.', '..GG....GG..', '....GGGG....'], 9, 3, { G: '#e6bf6b' });

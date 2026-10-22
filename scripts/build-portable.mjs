@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,6 +30,21 @@ for (const match of [...css.matchAll(/url\(["']?([^"')]+)["']?\)/g)]) {
 const js = (await readFile(localAsset(jsUrl), 'utf8')).replace(/<\/script/gi, '<\\/script');
 html = html.replace(/<link rel="stylesheet"[^>]*>/, () => `<style>${css}</style>`);
 html = html.replace(/<script[^>]*src="[^"]+"[^>]*><\/script>/, () => `<script type="module">${js}</script>`);
+// The painted art (dist/arte) travels inside the page; src/chibi-art.js reads it from window.DTD_ART.
+const artFiles = [];
+const collect = async dir => {
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) await collect(full);
+    else if (entry.name.endsWith('.webp')) artFiles.push(full);
+  }
+};
+await collect(path.join(dist, 'arte'));
+const art = {};
+for (const file of artFiles) {
+  art[path.relative(dist, file).split(path.sep).join('/')] = `data:image/webp;base64,${(await readFile(file)).toString('base64')}`;
+}
+html = html.replace(/<script type="module">/, () => `<script>window.DTD_ART=${JSON.stringify(art)};</script><script type="module">`);
 const faviconUrl = html.match(/<link rel="icon"[^>]*href="([^"]+)"/)?.[1];
 if (faviconUrl) html = html.replace(`href="${faviconUrl}"`, `href="${await toDataUrl(faviconUrl, 'image/svg+xml')}"`);
 const output = path.join(dist, 'DTD-Dao-Tower-Defense.html');

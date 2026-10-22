@@ -2,9 +2,9 @@
 
 Protótipo jogável de tower defense para navegador no computador, em português, com temática de cultivo inspirada em *Martial Peak*. Arte em pixels e personagens originais.
 
-Você começa com o **Faxineiro**. Posicione cultivadores para proteger o portal da seita, derrote cinco ondas por território e ganhe **Cristais do Dao** para recrutar novos heróis.
+Você começa com o **Faxineiro**, o servo que varre os pátios do Pavilhão Ling Xiao. As **12 fases** seguem a jornada do **Mundo Inicial** do *Black Book Idle*, do Pavilhão Ling Xiao ao Portal para o Reino Tong Xuan, cada uma com o chefe e os inimigos do mapa correspondente. Posicione cultivadores, derrote cinco ondas por fase e ganhe **Cristais do Dao** para recrutar novos heróis.
 
-A direção visual é **pixel art**: cenário em grade 500×300 ampliado 2×, retratos e sprites em grade 30×35, criaturas e Qi com contornos em pixels e títulos na fonte Pixelify Sans. Cada território tem sua própria paleta. Os sprites são desenhados em SVG com bordas nítidas e os personagens em campo têm fundo transparente.
+A arte é **chibi em pixel art**: os 14 heróis, os inimigos, os chefes e os cenários pintados foram gerados a partir dos prompts em `docs/PROMPTS_HEROIS_CHIBI.md` e `docs/PROMPTS_MUNDO1.md`, com os chibis do Black Book Idle como referência. Cada cenário tem seu próprio caminho e suas nove plataformas. Fases que ainda não têm arte (hoje a 7 e a 10) usam o cenário e as criaturas desenhados em código, em SVG.
 
 ![DTD em pixel art durante uma partida](docs/DTD-pixel-art.jpg)
 
@@ -51,7 +51,7 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 
 ## Progressão e recrutamento
 
-Há 14 heróis em sete raridades e três fases com dificuldade crescente. Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
+Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida dos inimigos sobe 18% a cada fase. Só com o Faxineiro, jogando bem, dá para vencer todas; a partir da fase 9 ele começa a perder vidas, e os heróis recrutados fazem diferença. Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
 
 | Raridade | Chance por invocação |
 | --- | ---: |
@@ -63,7 +63,7 @@ Há 14 heróis em sete raridades e três fases com dificuldade crescente. Todo j
 | UR | 1,2% |
 | UR+ | 0,3% |
 
-O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Heróis repetidos aumentam a contagem de cópias, sem bônus de atributos nesta versão. As primeiras vitórias concedem 150, 175 e 200 cristais; repetir uma fase concede 50.
+O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Heróis repetidos aumentam a contagem de cópias, sem bônus de atributos nesta versão. A primeira vitória em cada fase concede de 150 cristais (fase 1) a 425 (fase 12), 25 a mais por fase; repetir uma fase concede 50.
 
 Heróis, cristais e fases concluídas ficam salvos no `localStorage` deste navegador. Qi, torres, melhorias e partidas em andamento são temporários e reiniciam ao trocar de fase, reiniciar ou recarregar. Não há conta, servidor de progressão ou sincronização entre dispositivos.
 
@@ -74,7 +74,7 @@ npm test
 npm run build
 ```
 
-Os testes de lógica verificam combate, Qi, melhorias, vitória e derrota, três fases com os dados reais do Faxineiro, probabilidades, recompensas e persistência.
+Os testes de lógica verificam combate, Qi, melhorias, vitória e derrota, as 12 fases com os dados reais do Faxineiro, as plataformas de cada cenário, probabilidades, recompensas e persistência.
 
 Há também testes completos de navegador. Com o servidor de desenvolvimento ativo, Python Playwright e Chromium disponíveis:
 
@@ -85,10 +85,23 @@ python3 tests/recruitment_smoke.py
 
 Os scripts usam `/usr/bin/chromium` por padrão; `CHROMIUM_PATH` permite outro caminho, e `DTD_TEST_URL` permite outro endereço do servidor.
 
+## Arte
+
+A arte original, em tamanho grande, fica em `arte/ia/` (`herois/`, `inimigos/`, `chefes/` e `fases/`, com os nomes dos documentos de prompts). O jogo usa cópias leves em WebP, em `public/arte/`. Depois de adicionar ou trocar uma imagem, execute:
+
+```bash
+npm run arte
+```
+
+O comando gera as cópias e atualiza `src/art-manifest.js`. Um cenário novo também precisa do caminho e das nove plataformas traçados em `src/maps.js`; até lá, a fase usa o caminho padrão.
+
 ## Estrutura
 
 - `src/engine.js`: simulação do combate, independente da interface.
-- `src/data.js`: heróis, raridades, atributos e territórios.
+- `src/maps.js`: caminho dos inimigos e plataformas de cada cenário.
+- `src/data.js`: heróis, raridades, atributos e as 12 fases do Mundo Inicial.
+- `src/chibi-art.js` e `src/art-manifest.js`: arte chibi de heróis, inimigos e cenários.
+- `scripts/preparar-arte.mjs`: gera `public/arte/` a partir de `arte/ia/`.
 - `src/profile.js`: gacha, recompensas e persistência local.
 - `src/art.js`: exportações de arte e ícones da interface.
 - `src/pixel-terrain.js`: cenário em pixels e paletas das três fases.

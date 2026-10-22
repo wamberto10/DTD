@@ -1,3 +1,6 @@
+import { renderTerrain as drawTerrain } from './pixel-terrain.js';
+import { sceneryArt } from './chibi-art.js';
+
 const ICONS = {
   swords: '<path d="m4 3 12 12m-1-4 4 4-4 4m-2-2-3 3m-6-3 3 3m-3-6 4-4M17 3l4 4-9 9-4-4zM3 3l4 1 13 13-3 3L4 7z"/>',
   sword: '<path d="m4 20 4-4m-3-3 6 6M8 13 17 4l4-1-1 4-9 9z"/>',
@@ -32,4 +35,11 @@ export function icon(name, size = 20) {
 }
 
 export { portrait } from './pixel-portraits.js';
-export { renderTerrain } from './pixel-terrain.js';
+
+/** Painted scenery when the stage has one; otherwise the pixel terrain drawn in code. */
+export function renderTerrain(stage = 1) {
+  const url = sceneryArt(stage);
+  if (url) return `<image class="painted-terrain" href="${url}" x="0" y="0" width="1000" height="600" preserveAspectRatio="none"/>`;
+  // Stages still waiting for their painting borrow a fitting palette: green for the wilds, blue for the small worlds.
+  return drawTerrain(stage === 7 ? 2 : stage === 10 ? 3 : stage);
+}

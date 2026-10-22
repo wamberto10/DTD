@@ -1,39 +1,12 @@
 /** Deterministic, frame-rate-independent tower defense simulation. No DOM access. */
-const path = [
-  { x: 0, y: 170 }, { x: 205, y: 170 }, { x: 205, y: 410 },
-  { x: 475, y: 410 }, { x: 475, y: 235 }, { x: 735, y: 235 },
-  { x: 735, y: 445 }, { x: 1000, y: 445 },
-];
-const segments = path.slice(1).map((point, index) => ({
-  from: path[index], to: point,
-  length: Math.hypot(point.x - path[index].x, point.y - path[index].y),
-}));
-export const MAP = Object.freeze({
-  width: 1000, height: 600, path,
-  pathLength: segments.reduce((total, segment) => total + segment.length, 0),
-  pads: [
-    { id: 'p1', x: 135, y: 270 }, { id: 'p2', x: 300, y: 260 },
-    { id: 'p3', x: 345, y: 495 }, { id: 'p4', x: 385, y: 325 },
-    { id: 'p5', x: 565, y: 325 }, { id: 'p6', x: 615, y: 150 },
-    { id: 'p7', x: 650, y: 425 }, { id: 'p8', x: 830, y: 325 },
-    { id: 'p9', x: 875, y: 520 },
-  ],
-});
+import { DEFAULT_MAP, mapForStage, pointOnPath } from './maps.js';
 
-export function pointOnPath(distance) {
-  let remaining = Math.max(0, distance);
-  for (const segment of segments) {
-    if (remaining <= segment.length) {
-      const fraction = remaining / segment.length;
-      return {
-        x: segment.from.x + (segment.to.x - segment.from.x) * fraction,
-        y: segment.from.y + (segment.to.y - segment.from.y) * fraction,
-      };
-    }
-    remaining -= segment.length;
-  }
-  return { ...path[path.length - 1] };
-}
+export const MAP = DEFAULT_MAP;
+export { mapForStage, pointOnPath };
+
+/** Enemy health grows 18% per stage: the Faxineiro alone can still clear stage 12 with good play. */
+export const STAGE_STEP = 0.18;
+export const stageDifficulty = stage => 1 + (stage - 1) * STAGE_STEP;
 
 const success = (extra = {}) => ({ ok: true, ...extra });
 const failure = reason => ({ ok: false, reason });
@@ -47,8 +20,10 @@ export class GameEngine {
 
   restart(stage = this.state?.stage || 1, heroes = this.heroes || []) {
     this.heroes = heroes;
+    const stageNumber = Math.max(1, Math.floor(Number(stage) || 1));
+    this.map = mapForStage(stageNumber);
     this.state = {
-      status: 'preparing', stage: Math.max(1, Math.floor(Number(stage) || 1)),
+      status: 'preparing', stage: stageNumber,
       wave: 0, totalWaves: 5, lives: 20, qi: 180,
       towers: [], enemies: [], projectiles: [], kills: 0, speed: 1,
       spawned: 0, waveEnemyCount: 0,
@@ -79,7 +54,7 @@ export class GameEngine {
 
   placeTower(hero, padId) {
     if (!playable(this.state)) return failure('A fase já terminou.');
-    const pad = MAP.pads.find(item => item.id === padId);
+    const pad = this.map.pads.find(item => item.id === padId);
     if (!pad) return failure('Escolha uma plataforma de defesa.');
     if (this.state.towers.some(tower => tower.padId === padId)) return failure('Esta plataforma já está ocupada.');
     if (!hero || !hero.id || !Number.isFinite(hero.cost) || hero.cost <= 0 ||
@@ -141,7 +116,7 @@ export class GameEngine {
     this.state.wave++;
     const wave = this.state.wave;
     const count = 5 + wave * 2;
-    const stageScale = 1 + (this.state.stage - 1) * 0.23;
+    const stageScale = stageDifficulty(this.state.stage);
     this._spawnQueue = Array.from({ length: count }, (_, index) => {
       const kind = wave === 5 && index === count - 1 ? 'boss'
         : wave >= 3 && index % 5 === 3 ? 'brute'
@@ -180,7 +155,7 @@ export class GameEngine {
       const blueprint = this._spawnQueue.shift();
       state.enemies.push({
         id: `enemy-${this._nextId++}`, ...blueprint, maxHp: blueprint.hp,
-        x: path[0].x, y: path[0].y, progress: 0, slowRemaining: 0,
+        x: this.map.path[0].x, y: this.map.path[0].y, progress: 0, slowRemaining: 0, facing: 1,
       });
       state.spawned++;
       this._spawnTimer += state.wave === 5 ? 0.85 : 1.05;
@@ -188,14 +163,18 @@ export class GameEngine {
     for (const enemy of state.enemies) {
       enemy.slowRemaining = Math.max(0, enemy.slowRemaining - dt);
       enemy.progress += enemy.speed * dt * (enemy.slowRemaining > 0 ? 0.65 : 1);
-      Object.assign(enemy, pointOnPath(enemy.progress));
+      const previousX = enemy.x;
+      Object.assign(enemy, pointOnPath(enemy.progress, this.map));
+      // Sprites look right; they turn only on horizontal stretches of the road.
+      if (enemy.x < previousX - 0.01) enemy.facing = -1;
+      else if (enemy.x > previousX + 0.01) enemy.facing = 1;
     }
-    const escaped = state.enemies.filter(enemy => enemy.progress >= MAP.pathLength);
+    const escaped = state.enemies.filter(enemy => enemy.progress >= this.map.pathLength);
     for (const enemy of escaped) {
       state.lives = Math.max(0, state.lives - (enemy.kind === 'boss' ? 5 : 1));
       this._emit('escaped', { enemy });
     }
-    state.enemies = state.enemies.filter(enemy => enemy.progress < MAP.pathLength);
+    state.enemies = state.enemies.filter(enemy => enemy.progress < this.map.pathLength);
     if (state.lives <= 0) {
       state.status = 'defeat';
       this._emit('defeat', { stage: state.stage, wave: state.wave });

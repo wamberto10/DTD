@@ -25,10 +25,53 @@ export const HEROES = [
   { id: 'xing-he', name: 'Xing He', title: 'Tecelã de estrelas', rarity: 'urplus', element: 'lightning', cost: 180, damage: 166, range: 265, attackSpeed: 1.55, color: '#d8c9f2', portrait: 'star', description: 'Desenha constelações com um gesto. Cada estrela é um fragmento de seu incomensurável poder.' },
 ];
 
+// Mundo 1 do Black Book Idle: cada mapa vira uma fase, com o mesmo chefe e inimigos da sua lista.
+export const WORLD = { name: 'Mundo Inicial', motto: 'Do servo insignificante ao ápice do Mundo Inicial.' };
+
+const stage = (id, name, realm, subtitle, guard, enemies, description) => ({
+  id, name, realm, subtitle, guard, description,
+  enemies: { normal: enemies[0], fast: enemies[1], brute: enemies[2], boss: enemies[3] },
+  reward: 150 + (id - 1) * 25,
+  difficulty: id <= 3 ? 'Iniciante' : id <= 6 ? 'Intermediário' : id <= 9 ? 'Avançado' : 'Mestre',
+});
+
 export const STAGES = [
-  { id: 1, name: 'Vale do Despertar', subtitle: 'Onde todo caminho começa', realm: 'Domínio Mortal', reward: 150, difficulty: 'Iniciante', description: 'Proteja o portão da seita contra as criaturas que emergem da floresta. Cinco ondas separam você do primeiro avanço.' },
-  { id: 2, name: 'Bosque Espiritual', subtitle: 'Além da névoa de jade', realm: 'Domínio Espiritual', reward: 175, difficulty: 'Intermediário', description: 'O Qi do bosque fortalece as criaturas. Reúna novos discípulos e refine suas defesas antes de enfrentar o guardião.' },
-  { id: 3, name: 'Pico dos Nove Céus', subtitle: 'A provação dos ascendentes', realm: 'Domínio Celestial', reward: 200, difficulty: 'Avançado', description: 'No topo do mundo, um antigo soberano desperta. Somente uma formação bem cultivada poderá resistir à última provação.' },
+  stage(1, 'Pavilhão Ling Xiao', 'Corpo Temperado', 'Onde o servo começa a jornada', 'Proteja o portão do pátio dos servos',
+    ['Servo Arrogante', 'Macaco Ladrão', 'Valentão dos Alojamentos', 'Discípulo Interno de Elite'],
+    'O início absoluto. Você é um servo insignificante de uma grande seita, sem talento aparente. Você varre estes pátios todos os dias, e ninguém imagina que este servo um dia vai virar lenda.'),
+  stage(2, 'Montanhas do Pavilhão Ling Xiao', 'Elemento Inicial', 'Cavernas, ervas e feras espirituais', 'Proteja a ermida das ervas',
+    ['Lobo Cinzento', 'Morcego Sanguinário', 'Javali de Presas de Ferro', 'Fera Espiritual da Montanha'],
+    'As montanhas ao redor da seita escondem cavernas, ervas e feras espirituais. Aqui você percebe que o mundo exterior é muito mais perigoso que a seita.'),
+  stage(3, 'Cidades da Grande Dinastia Han', 'Transformação do Qi', 'O poder das grandes famílias', 'Proteja o portão da mansão',
+    ['Bandido de Estrada', 'Batedor de Carteiras', 'Lutador do Bando da Batalha Sangrenta', 'Jovem Mestre da Família'],
+    'Vilas, mercados, casas de leilão e arenas. Você descobre que as grandes famílias controlam quantidades enormes de recursos.'),
+  stage(4, 'Caminho para a Capital Central', 'Transformação do Qi', 'Estradas imperiais e emboscadas', 'Proteja a Estalagem Imperial',
+    ['Saqueador de Caravanas', 'Assassino Contratado', 'Escolta Mercenária', 'Especialista das Grandes Famílias'],
+    'Estradas imperiais, caravanas e grandes cidades. Os conflitos entre famílias aumentam, e você ouve falar das Oito Grandes Famílias da Capital Central.'),
+  stage(5, 'Capital Central', 'Separação e Reunião', 'Onde seu nome começa a ser conhecido', 'Proteja o portão do palácio',
+    ['Arruaceiro da Capital', 'Sentinela Oculta', 'Guarda de Família Nobre', 'Jovem Especialista das Oito Famílias'],
+    'O grande centro político e marcial da Dinastia Han. Palácios, mansões das Oito Grandes Famílias, leilões e áreas proibidas. Aqui seu nome começa a ser conhecido.'),
+  stage(6, 'Vale do Rei da Medicina', 'Separação e Reunião', 'A alquimia também decide o destino', 'Proteja o pavilhão das pílulas',
+    ['Ladrão de Ervas', 'Serpente do Lago Medicinal', 'Golem de Fornalha', 'Guardião do Vale'],
+    'Jardins espirituais, campos medicinais e laboratórios. O caminho marcial não depende só de força: conhecimento e alquimia também decidem o destino de um cultivador.'),
+  stage(7, 'Terras Selvagens', 'Elemento Verdadeiro', 'Longe da civilização', 'Proteja o acampamento nas ruínas',
+    ['Hiena Espiritual', 'Aranha Gigante', 'Crocodilo de Escamas de Ferro', 'Grande Monstro Espiritual'],
+    'Longe da civilização: florestas gigantes, rios, ruínas e tesouros escondidos, guardados por monstros espirituais.'),
+  stage(8, 'Terras do Vale do Rei Fantasma', 'Elemento Verdadeiro', 'O domínio das seitas malignas', 'Proteja o santuário da vila',
+    ['Cultivador Maligno', 'Morcego Demoníaco', 'Fera Corrompida', 'Mestre do Vale do Rei Fantasma'],
+    'Céu escuro, montanhas corrompidas e energia demoníaca. As terras das seitas malignas, lideradas pelo temido Vale do Rei Fantasma e governadas pelos Reis Malignos.'),
+  stage(9, 'Guerra contra a Dinastia Tian Lang', 'Ascensão Imortal', 'A invasão da Dinastia Han', 'Proteja a muralha da seita',
+    ['Soldado de Tian Lang', 'Batedor de Tian Lang', 'Capitão de Tian Lang', 'General da Dinastia Tian Lang'],
+    'A Dinastia Tian Lang, aliada às seitas malignas, invade a Dinastia Han: invasões, emboscadas e cercos a cidades e seitas em uma guerra aberta.'),
+  stage(10, 'Misteriosos Pequenos Mundos', 'Ascensão Imortal', 'Ruínas, formações e heranças', 'Proteja o Santuário da Herança',
+    ['Espírito Errante', 'Reflexo Sombrio', 'Besta de Pedra Antiga', 'Guardião da Antiga Herança'],
+    'Uma passagem leva a um pequeno mundo de ruínas, formações e túmulos antigos. O Mundo Inicial guarda segredos muito maiores do que você imaginava.'),
+  stage(11, 'O Segredo do Mundo', 'Transcendente', 'Um fragmento de algo maior', 'Proteja o Mural da Verdade',
+    ['Caçador Dimensional', 'Fera do Vazio', 'Sentinela de Pedra', 'Guardião do Corredor do Vazio'],
+    'Formações gigantes e corredores espaciais revelam a verdade: o Mundo Inicial é apenas um fragmento de uma realidade muito maior, ligado ao Reino Tong Xuan.'),
+  stage(12, 'Portal para o Reino Tong Xuan', 'Transcendente', 'Este mundo era apenas o começo', 'Proteja o portal',
+    ['Especialista Errante', 'Distorção Espacial', 'Formação Guardiã Desperta', 'Senhor Demônio'],
+    'Diante de um antigo corredor espacial, cercado por ruínas e energia espacial. Este mundo era apenas o começo.'),
 ];
 
 export const GACHA_COST = 100;

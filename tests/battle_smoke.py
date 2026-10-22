@@ -53,7 +53,7 @@ with sync_playwright() as p:
                 page.locator('[data-action="deselect-tower"]').click()
             page.locator('[data-action="wave"]').click()
 
-    expect(page.locator('#modal-title')).to_have_text('O vale está a salvo.')
+    expect(page.locator('#modal-title')).to_have_text('O território está a salvo.')
     expect(page.locator('.victory-reward')).to_contain_text('+150 Cristais do Dao')
     expect(page.locator('#hud-lives')).to_have_text('20')
     profile = page.evaluate("JSON.parse(localStorage.getItem('dtd-dao-profile-v1'))")
@@ -62,7 +62,7 @@ with sync_playwright() as p:
     assert profile['unlockedStage'] == 2
     page.screenshot(path='/tmp/dtd-victory.png', full_page=True)
     page.locator('[data-action="result-next"]').click()
-    expect(page.locator('.map-title strong')).to_have_text('Bosque Espiritual')
+    expect(page.locator('.map-title strong')).to_have_text('Montanhas do Pavilhão Ling Xiao')
     expect(page.locator('#hud-qi')).to_have_text('180')
     expect(page.locator('.map-tower')).to_have_count(0)
     expect(page.locator('#hud-lives')).to_have_text('20')

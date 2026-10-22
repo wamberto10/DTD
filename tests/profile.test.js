@@ -83,8 +83,13 @@ test('victory grants first-clear rewards, unlocks the next stage, and preserves 
   assert.deepEqual(repeat.profile.completedStages, [1]);
   const second = grantVictory(first.profile, 2);
   const third = grantVictory(second.profile, 3);
-  assert.equal(third.profile.unlockedStage, 3);
+  assert.equal(third.profile.unlockedStage, 4);
   assert.deepEqual(third.profile.completedStages, [1, 2, 3]);
+  // Clearing the last stage keeps it as the furthest unlocked stage.
+  let all = createProfile();
+  for (const stage of STAGES) all = grantVictory(all, stage.id).profile;
+  assert.equal(all.unlockedStage, STAGES.length);
+  assert.equal(all.completedStages.length, STAGES.length);
   assert.equal(grantVictory(original, 3).reward, 0);
   assert.equal(grantVictory(original, 999).reward, 0);
 });

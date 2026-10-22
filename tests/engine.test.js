@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameEngine, MAP, pointOnPath } from '../src/engine.js';
+import { GameEngine, MAP, mapForStage, pointOnPath } from '../src/engine.js';
 import { HEROES, STAGES } from '../src/data.js';
 import { createProfile, grantVictory } from '../src/profile.js';
 
 const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
+const longestRange = Math.max(...HEROES.map(hero => hero.range));
+// Length of road (in battle units) that a Faxineiro on this platform can reach.
+function roadInRange(map, pad, range = cleaner.range) {
+  let covered = 0;
+  for (let distance = 0; distance < map.pathLength; distance += 5) {
+    const point = pointOnPath(distance, map);
+    if (Math.hypot(point.x - pad.x, point.y - pad.y) <= range) covered += 5;
+  }
+  return covered;
+}
 function simulateWave(engine, maxSeconds = 180) {
   for (let frame = 0; frame < maxSeconds * 30 && engine.state.status === 'running'; frame++) engine.update(1 / 30);
   assert.notEqual(engine.state.status, 'running', 'The wave must finish within the simulation budget.');
@@ -76,21 +86,32 @@ test('the actual starter can clear every stage and unlock sequential rewards wit
       }
       events.push(event);
     } });
-    for (const pad of ['p1', 'p2', 'p4']) assert.equal(game.placeTower(cleaner, pad).ok, true);
+    // Platforms that watch the longest stretch of this stage's road come first.
+    const pads = [...game.map.pads].sort((a, b) => roadInRange(game.map, b) - roadInRange(game.map, a));
     for (let wave = 0; wave < 5; wave++) {
-      // A human-friendly strategy: upgrade the weakest tower only between waves.
+      // A human-friendly strategy, only between waves: three towers first, then a new tower
+      // whenever every tower reached level 3, otherwise upgrade the weakest one.
       while (true) {
-        const weakest = [...game.state.towers].filter(tower => tower.level < 5)
-          .sort((a, b) => a.level - b.level)[0];
+        const towers = game.state.towers;
+        const weakest = [...towers].filter(tower => tower.level < 5).sort((a, b) => a.level - b.level)[0];
+        const free = pads.find(pad => !towers.some(tower => tower.padId === pad.id));
+        if (free && (towers.length < 3 || !weakest || weakest.level >= 3)) {
+          if (game.state.qi < cleaner.cost) break;
+          assert.equal(game.placeTower(cleaner, free.id).ok, true);
+          continue;
+        }
         if (!weakest || game.state.qi < game.getNextUpgradeCost(weakest)) break;
         assert.equal(game.upgradeTower(weakest.id).ok, true);
       }
       assert.equal(game.startWave().ok, true);
       simulateWave(game);
     }
-    assert.equal(game.state.status, 'victory');
-    assert.equal(game.state.lives, 20);
-    assert.equal(game.state.kills, 55);
+    assert.equal(game.state.status, 'victory', `Stage ${stage.id} must be beatable with the Faxineiro alone.`);
+    assert.ok(game.state.lives > 0);
+    // The first stages stay gentle: no life is lost before stage 9.
+    if (stage.id < 9) assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives.`);
+    if (game.state.lives === 20) assert.equal(game.state.kills, 55);
+    else assert.ok(game.state.kills < 55);
     assert.equal(game.startWave().ok, false);
     assert.equal(events.filter(event => event.type === 'victory').length, 1);
     assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
@@ -104,7 +125,26 @@ test('the actual starter can clear every stage and unlock sequential rewards wit
     assert.equal(game.state.towers.length, 0);
     assert.equal(profile.owned.length, 1);
   }
-  assert.equal(profile.crystals, 825);
+  assert.equal(profile.crystals, 300 + STAGES.reduce((total, stage) => total + stage.reward, 0));
+});
+
+test('every stage has nine platforms off the road and a road that crosses the whole map', () => {
+  for (const stage of STAGES) {
+    const map = mapForStage(stage.id);
+    assert.equal(map.pads.length, 9, `Stage ${stage.id}`);
+    assert.equal(map.path[0].x, 0);
+    assert.equal(map.path.at(-1).x, 1000);
+    for (const pad of map.pads) {
+      let nearest = Infinity;
+      for (let distance = 0; distance <= map.pathLength; distance += 2) {
+        const point = pointOnPath(distance, map);
+        nearest = Math.min(nearest, Math.hypot(point.x - pad.x, point.y - pad.y));
+      }
+      assert.ok(nearest >= 24, `Stage ${stage.id} platform ${pad.id} sits on the road.`);
+      // A few painted platforms are far from the road: they are spots for long-range heroes.
+      assert.ok(roadInRange(map, pad, longestRange) > 0, `Stage ${stage.id} platform ${pad.id} cannot reach the road.`);
+    }
+  }
 });
 
 test('undefended enemies cause defeat without granting rewards or unlocking stages', () => {
