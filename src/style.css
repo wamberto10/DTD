@@ -317,3 +317,7 @@
 .wave-countdown b{color:#f4e6b3!important;min-width:12px;text-align:center}
 .wave-countdown.hidden{display:none}
 .countdown-title{color:#f4e6b3}
+
+/* A hero already on the map (each hero defends one platform per stage). */
+.hero-card.on-field .hero-portrait > :not(.field-badge):not(.hero-rarity) { opacity: .45; filter: grayscale(.5); }
+.field-badge { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); padding: 2px 5px; font-size: 8px; letter-spacing: .5px; font-weight: 700; white-space: nowrap; color: #24301f; background: #c4d48d; border: 1px solid #e6efc0; }

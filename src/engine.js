@@ -13,18 +13,21 @@ export const BALANCE = Object.freeze({
   // No hero may cost more than this: a squad of only dearer heroes could not place a tower before the first wave.
   startQi: 180,
   wavesPerStage: 5,
-  // Enemy health grows 18% per stage. With baseHp/hpPerWave below, the Faxineiro alone carries the first stages
-  // and from stage 7 the player needs recruits; a typical collection keeps a comfortable margin early and a tight
-  // one at stage 12 (see docs/BALANCEAMENTO.md).
+  // Enemy health grows 18% per stage. With one platform per hero and baseHp/hpPerWave below, the Faxineiro alone
+  // (one tower) wins the first stages, the first recruits carry the player to stage 6, and a typical collection keeps
+  // a comfortable margin early and a tight one at stage 12 (see docs/BALANCEAMENTO.md).
   stageStep: 0.18,
   // After the player starts the first wave, each next wave starts by itself after this break (real seconds).
   waveBreakSeconds: 5,
+  // Enemies come in at the edge of the map. Towers can only hit them after they walk this far along the road
+  // (battle units, about 0.7 s for a normal enemy), so none is killed before the player sees it.
+  enemyEntry: 40,
   simulationStep: 1 / 30,
   maxFrameSeconds: 1,
   speeds: [1, 2],
   waves: Object.freeze({
     baseCount: 5, countPerWave: 2,
-    baseHp: 46, hpPerWave: 16, speedPerWave: 1.5,
+    baseHp: 42, hpPerWave: 15, speedPerWave: 1.5,
     spawnInterval: 1.05, finalWaveSpawnInterval: 0.85,
     // From wave 2, every 4th enemy (slot 2) is fast; from wave 3, every 5th (slot 3) is a brute; the last enemy of the final wave is the boss.
     fastFromWave: 2, fastEvery: 4, fastSlot: 2,
@@ -126,6 +129,10 @@ export class GameEngine {
     }
     if (this.heroes.length && !this.heroes.some(item => item.id === hero.id)) {
       return failure('Este herói ainda não foi recrutado.');
+    }
+    // Each hero defends a single platform per stage; selling the tower frees the hero again.
+    if (this.state.towers.some(tower => tower.hero.id === hero.id)) {
+      return failure(`${hero.name || 'Este herói'} já está em campo. Cada herói defende uma plataforma por fase.`);
     }
     if (this.state.qi < hero.cost) return failure('Qi insuficiente para invocar este herói.');
     const tower = {
@@ -249,8 +256,8 @@ export class GameEngine {
     for (const tower of state.towers) {
       tower.cooldown = Math.max(0, tower.cooldown - dt);
       if (tower.cooldown > 0) continue;
-      // Each tower hits the enemy furthest along the road within its range.
-      const target = state.enemies.filter(enemy => enemy.hp > 0 &&
+      // Each tower hits the enemy furthest along the road within its range, once it has come into the map.
+      const target = state.enemies.filter(enemy => enemy.hp > 0 && enemy.progress >= BALANCE.enemyEntry &&
         Math.hypot(enemy.x - tower.x, enemy.y - tower.y) <= tower.range)
         .sort((a, b) => b.progress - a.progress)[0];
       if (!target) continue;

@@ -89,11 +89,14 @@ await json('regras.json', {
 // ---------- Reference results (golden tests for the C# port) ----------
 const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
 const round = value => Math.round(value * 1e6) / 1e6;
-// A scripted match: Faxineiro on three platforms; between waves, each tower (in placement order) is upgraded once if affordable.
-function scriptedMatch(stage, stars, pads) {
-  const hero = withStars(cleaner, stars);
-  const game = new GameEngine({ stage, heroes: [hero] });
-  for (const pad of pads) game.placeTower(hero, pad);
+// A scripted match: one hero per platform (each hero defends a single platform per stage), all with the same stars;
+// between waves, each tower (in placement order) is upgraded once if affordable.
+function scriptedMatch(stage, stars, lineup) {
+  const heroes = lineup.map(([id]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  const game = new GameEngine({ stage, heroes });
+  lineup.forEach(([, pad], index) => {
+    if (!game.placeTower(heroes[index], pad).ok) throw new Error(`Caso de teste inválido: ${lineup[index][0]} em ${pad}`);
+  });
   const waves = [];
   for (let wave = 1; wave <= BALANCE.wavesPerStage && ['preparing'].includes(game.state.status); wave++) {
     if (wave > 1) for (const tower of [...game.state.towers]) {
@@ -106,7 +109,7 @@ function scriptedMatch(stage, stars, pads) {
     waves.push({ wave, frames, status: game.state.status, kills: game.state.kills, qi: game.state.qi, lives: game.state.lives,
       towerLevels: game.state.towers.map(tower => tower.level) });
   }
-  return { stage, hero: 'faxineiro', stars, pads, dt: 1 / 30, rule: 'between waves, upgrade each tower once in placement order if Qi allows; start the next wave at once', waves };
+  return { stage, stars, lineup: lineup.map(([hero, pad]) => ({ hero, pad })), dt: 1 / 30, rule: 'between waves, upgrade each tower once in placement order if Qi allows; start the next wave at once', waves };
 }
 await json('casos-de-teste.json', {
   about: 'Results of the JavaScript engine. The Unity port must give the same numbers for the same inputs.',
@@ -129,7 +132,13 @@ await json('casos-de-teste.json', {
   starCosts: Array.from({ length: 15 }, (_, stars) => ({ from: stars, cost: nextStarCost(stars) })),
   starredHeroes: [0, 1, 5, 7, 12].map(stars => ({ hero: 'faxineiro', stars, damage: withStars(cleaner, stars).damage, attackSpeed: withStars(cleaner, stars).attackSpeed })),
   // The last one is a lost match (one tower against stage 12), to check lives and defeat too.
-  matches: [scriptedMatch(1, 0, ['p1', 'p2', 'p4']), scriptedMatch(5, 0, ['p2', 'p3', 'p6']), scriptedMatch(12, 5, ['p2', 'p4', 'p6']), scriptedMatch(12, 0, ['p1'])],
+  matches: [
+    scriptedMatch(1, 0, [['faxineiro', 'p1'], ['aprendiz', 'p2'], ['lin-yue', 'p4']]),
+    scriptedMatch(5, 0, [['faxineiro', 'p2'], ['aprendiz', 'p3'], ['lin-yue', 'p6']]),
+    // Su Lan slows enemies (ice): the slow is compared too.
+    scriptedMatch(12, 5, [['su-lan', 'p2'], ['faxineiro', 'p4']]),
+    scriptedMatch(12, 0, [['faxineiro', 'p1']]),
+  ],
 });
 
 // ---------- Art (PNG) ----------

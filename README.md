@@ -42,8 +42,8 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 ## Como jogar
 
 1. Na aba **Esquadrão**, escolha até 5 heróis para levar à batalha. Só eles aparecem na Defesa e podem ser posicionados. Heróis novos entram sozinhos enquanto houver vaga.
-2. Na Defesa, selecione um herói do esquadrão e clique em um círculo no mapa. Você pode posicionar várias torres do mesmo herói.
-3. Clique em **Iniciar onda**. Os cultivadores atacam automaticamente os inimigos em seu alcance. Depois da primeira, cada onda começa sozinha 5 segundos após a anterior; **Começar agora** pula a espera.
+2. Na Defesa, selecione um herói do esquadrão e clique em um círculo no mapa. Cada herói defende **uma plataforma por fase**: o cartão dele mostra "Em campo", o próximo herói livre já fica selecionado, e clicar num herói em campo abre a torre dele. Dispensar a torre libera o herói de novo.
+3. Clique em **Iniciar onda**. Os inimigos entram pela borda do mapa, e os cultivadores atacam automaticamente os que já entraram e estão em seu alcance. Depois da primeira, cada onda começa sozinha 5 segundos após a anterior; **Começar agora** pula a espera.
 4. Cada eliminação concede Qi. Clique em uma torre para ver seu alcance e melhorá-la até o nível 5. Dispensar uma torre recupera 70% do Qi investido.
 5. Proteja o local da fase durante as cinco ondas, incluindo o chefe final. Uma vitória libera a próxima fase e concede cristais.
 6. Visite **Recrutamento** para invocar heróis e **Meus heróis** para conferir a coleção e elevar as estrelas dos heróis com os fragmentos.
@@ -52,7 +52,7 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 
 ## Progressão e recrutamento
 
-Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida dos inimigos sobe 18% a cada fase. O Faxineiro sozinho dá conta das seis primeiras; a partir da fase 7 é preciso recrutar e elevar estrelas. A coleção que um jogador típico junta ao longo do mundo vence todas, com folga no começo e apertada no fim. Cada raridade rende mais dano por Qi que a anterior, e nenhum herói custa mais que o Qi inicial (180). Os números e o método estão em [docs/BALANCEAMENTO.md](docs/BALANCEAMENTO.md). Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
+Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida dos inimigos sobe 18% a cada fase. Como cada herói ocupa uma só plataforma, o Faxineiro sozinho é uma torre só: vence as primeiras fases, perdendo vidas, e mostra o caminho do recrutamento. Os primeiros recrutas levam o jogador até a fase 6 sem perder vida. A coleção que um jogador típico junta ao longo do mundo vence todas, com folga no começo e apertada no fim. Cada raridade rende mais dano por Qi que a anterior, e nenhum herói custa mais que o Qi inicial (180). Os números e o método estão em [docs/BALANCEAMENTO.md](docs/BALANCEAMENTO.md). Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
 
 | Raridade | Chance por invocação |
 | --- | ---: |

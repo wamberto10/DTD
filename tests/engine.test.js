@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameEngine, MAP, WAVE_BREAK_SECONDS, mapForStage, pointOnPath } from '../src/engine.js';
+import { BALANCE, GameEngine, MAP, WAVE_BREAK_SECONDS, mapForStage, pointOnPath } from '../src/engine.js';
 import { HEROES, STAGES } from '../src/data.js';
 import { createProfile, grantVictory } from '../src/profile.js';
 import { withStars } from '../src/stars.js';
@@ -39,6 +39,33 @@ test('placement spends Qi and refuses invalid, occupied, unaffordable, and unown
   assert.equal(game.state.qi, 130);
 });
 
+test('each hero defends a single platform per stage; selling the tower frees the hero again', () => {
+  const apprentice = HEROES.find(hero => hero.id === 'aprendiz');
+  const game = new GameEngine({ heroes: [cleaner, apprentice] });
+  const first = game.placeTower(cleaner, 'p1');
+  assert.equal(first.ok, true);
+  const again = game.placeTower(cleaner, 'p2');
+  assert.equal(again.ok, false);
+  assert.match(again.reason, /já está em campo/);
+  assert.equal(game.placeTower(apprentice, 'p2').ok, true);
+  assert.equal(game.sellTower(first.tower.id).ok, true);
+  assert.equal(game.placeTower(cleaner, 'p3').ok, true);
+  assert.deepEqual(game.state.towers.map(tower => tower.hero.id).sort(), ['aprendiz', 'faxineiro']);
+});
+
+test('towers only hit enemies after they come into the map', () => {
+  // A tower that reaches the whole start of the road and kills with one hit.
+  const sharpshooter = { ...cleaner, range: 400, damage: 10000, attackSpeed: 10 };
+  const kills = [];
+  const game = new GameEngine({ heroes: [sharpshooter], onEvent: event => { if (event.type === 'kill') kills.push(event.enemy.progress); } });
+  assert.equal(game.placeTower(sharpshooter, 'p1').ok, true);
+  game.startWave();
+  for (let frame = 0; frame < 30 * 5 && !kills.length; frame++) game.update(1 / 30);
+  assert.ok(kills.length, 'The tower must hit the first enemy soon after it comes in.');
+  assert.ok(kills[0] >= BALANCE.enemyEntry, `Hit at ${kills[0]} units, before the enemy came into the map.`);
+  assert.ok(kills[0] < BALANCE.enemyEntry + 5, 'Once inside, the enemy can be hit at once.');
+});
+
 test('upgrades spend Qi, improve stats, cap at level five, and sell refunds investment', () => {
   const game = new GameEngine();
   game.state.qi = 5000;
@@ -61,31 +88,35 @@ test('upgrades spend Qi, improve stats, cap at level five, and sell refunds inve
 test('enemy kills award Qi and first wave completes with basic towers', () => {
   const events = [];
   const game = new GameEngine({ onEvent: event => events.push(event) });
-  for (const pad of ['p1', 'p2', 'p4']) game.placeTower(cleaner, pad);
-  assert.equal(game.state.qi, 30);
+  // Three different heroes: each hero defends a single platform.
+  for (const [id, pad] of [['faxineiro', 'p1'], ['aprendiz', 'p2'], ['lin-yue', 'p4']]) game.placeTower(HEROES.find(hero => hero.id === id), pad);
+  assert.equal(game.state.qi, 0);
   assert.equal(game.startWave().ok, true);
   assert.equal(game.startWave().ok, false);
   simulateWave(game);
   assert.equal(game.state.status, 'preparing');
   assert.equal(game.state.wave, 1);
   assert.equal(game.state.kills, 7);
-  assert.equal(game.state.qi, 114);
+  assert.equal(game.state.qi, 7 * 12);
   assert.equal(game.state.lives, 20);
   assert.equal(events.filter(event => event.type === 'kill').length, 7);
 });
 
-// A careful but simple player: always the hero with the best damage per Qi, on the platforms that see the most road.
-// Three towers first, then a new tower whenever every tower reached level 3, otherwise upgrade the weakest one.
-// Qi is spent before each wave and once a second during it, as it comes in.
+// A careful but simple player. Heroes go out in order of damage per Qi, each on its own platform (the free one that
+// sees the most road for that hero): three towers first, then the next hero whenever every tower reached level 3,
+// otherwise upgrade the weakest tower. Qi is spent before each wave and once a second during it, as it comes in.
 function playStage(stageId, squad, onEvent = () => {}) {
-  const hero = [...squad].sort((a, b) => b.damage * b.attackSpeed / b.cost - a.damage * a.attackSpeed / a.cost)[0];
+  const order = [...squad].sort((a, b) => b.damage * b.attackSpeed / b.cost - a.damage * a.attackSpeed / a.cost);
   const game = new GameEngine({ stage: stageId, heroes: squad, onEvent: event => onEvent(event) });
-  const pads = [...game.map.pads].sort((a, b) => roadInRange(game.map, b, hero.range) - roadInRange(game.map, a, hero.range));
+  const seen = new Map();
+  const road = (pad, range) => seen.get(`${pad.id}:${range}`) ?? seen.set(`${pad.id}:${range}`, roadInRange(game.map, pad, range)).get(`${pad.id}:${range}`);
   const spend = () => {
     while (true) {
       const towers = game.state.towers;
       const weakest = [...towers].filter(tower => tower.level < 5).sort((a, b) => a.level - b.level)[0];
-      const free = pads.find(pad => !towers.some(tower => tower.padId === pad.id));
+      const hero = order.find(item => !towers.some(tower => tower.hero.id === item.id));
+      const free = hero && game.map.pads.filter(pad => !towers.some(tower => tower.padId === pad.id))
+        .sort((a, b) => road(b, hero.range) - road(a, hero.range))[0];
       if (free && (towers.length < 3 || !weakest || weakest.level >= 3)) {
         if (game.state.qi < hero.cost || !game.placeTower(hero, free.id).ok) return;
         continue;
@@ -105,20 +136,16 @@ function playStage(stageId, squad, onEvent = () => {}) {
   return game;
 }
 
-test('the starter alone carries the first six stages and unlocks them in order', () => {
+test('the starter alone, a single tower, still wins the first two stages', () => {
+  // Each hero defends one platform, so a player who has not recruited yet has one tower: enough for the first two
+  // stages, losing some lives, which points at the recruitment pavilion.
   let profile = createProfile();
-  for (const stage of STAGES.slice(0, 6)) {
+  for (const stage of STAGES.slice(0, 2)) {
     assert.equal(profile.unlockedStage, stage.id);
     const events = [];
     const game = playStage(stage.id, [cleaner], event => events.push(event));
     assert.equal(game.state.status, 'victory', `Stage ${stage.id} must be beatable with the Faxineiro alone.`);
-    // The first stages stay gentle: no life is lost before stage 6.
-    if (stage.id < 6) assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives.`);
-    // At stage 6 the boss gets through (5 lives), the sign that new recruits are about to be needed.
-    if (game.state.lives === 20) {
-      assert.equal(game.state.kills, 55);
-      assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
-    }
+    assert.equal(game.state.towers.length, 1);
     assert.equal(game.startWave().ok, false);
     assert.equal(events.filter(event => event.type === 'victory').length, 1);
     const before = profile.crystals;
@@ -135,8 +162,22 @@ test('the starter alone carries the first six stages and unlocks them in order',
   }
 });
 
-test('from stage 7 the Faxineiro alone is not enough: recruiting is part of the journey', () => {
-  assert.equal(playStage(7, [cleaner]).state.status, 'defeat');
+test('from stage 4 the Faxineiro alone is not enough: recruiting is part of the journey', () => {
+  assert.equal(playStage(4, [cleaner]).state.status, 'defeat');
+});
+
+test('the first recruits carry the first six stages without losing lives', () => {
+  // What 300 starting crystals usually bring: the Faxineiro (with the stars of a repeat) and two more common heroes.
+  const squad = [['faxineiro', 2], ['aprendiz', 0], ['lin-yue', 0]]
+    .map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  for (const stage of STAGES.slice(0, 6)) {
+    const events = [];
+    const game = playStage(stage.id, squad, event => events.push(event));
+    assert.equal(game.state.status, 'victory', `The first recruits must clear stage ${stage.id}.`);
+    assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives with three heroes.`);
+    assert.equal(game.state.kills, 55);
+    assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
+  }
 });
 
 test('the collection a typical player has by the end of the world clears every stage', () => {

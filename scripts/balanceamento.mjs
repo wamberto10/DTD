@@ -16,6 +16,7 @@ const { createProfile, summon, raiseStar, grantVictory } = await load('src/profi
 const { withStars } = await load('src/stars.js');
 const byId = Object.fromEntries(HEROES.map(h => [h.id, h]));
 const eff = h => (h.damage * h.attackSpeed) / h.cost;
+const dpsOf = h => h.damage * h.attackSpeed;
 
 let K = 1;
 const orig = GameEngine.prototype.startWave;
@@ -31,7 +32,8 @@ function play(stage, squad) {
     for (let guard = 0; guard < 40; guard++) {
       const s = engine.state; let best = null, affordable = null;
       const free = map.pads.filter(p => !s.towers.some(t => t.padId === p.id));
-      for (const hero of squad) for (const pad of free) {
+      // Each hero defends a single platform per stage.
+      for (const hero of squad.filter(h => !s.towers.some(t => t.hero.id === h.id))) for (const pad of free) {
         const value = dps(hero) * cover(pad, hero.range) / hero.cost;
         const move = { value, cost: hero.cost, act: () => engine.placeTower(hero, pad.id) };
         if (!best || value > best.value) best = move;
@@ -73,8 +75,10 @@ for (let p = 0; p < players; p++) {
   for (const stage of STAGES) {
     while (profile.crystals >= 100) profile = summon(profile, profile.crystals >= 900 ? 10 : 1, rng).profile;
     for (let changed = true; changed;) { changed = false; for (const id of profile.owned) { const r = raiseStar(profile, id); if (r.ok) { profile = r.profile; changed = true; } } }
-    const squad = profile.owned.map(id => withStars(byId[id], profile.stars[id] || 0)).sort((a, b) => eff(b) - eff(a)).slice(0, 5);
-    (at[stage.id] ??= []).push({ squad, best: eff(squad[0]) });
+    // With one platform per hero, the squad is the five strongest heroes (damage per second).
+    const squad = profile.owned.map(id => withStars(byId[id], profile.stars[id] || 0)).sort((a, b) => dpsOf(b) - dpsOf(a)).slice(0, 5);
+    // Players are ranked by the total strength of their squad.
+    (at[stage.id] ??= []).push({ squad, best: squad.reduce((total, h) => total + dpsOf(h), 0) });
     profile = grantVictory(profile, stage.id).profile;
   }
 }

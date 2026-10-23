@@ -20,6 +20,7 @@ let lastPaint = 0;
 let lastHud = '';
 let lastPadMarkup = '';
 let lastTowerMarkup = '';
+let lastSquadMarkup = '';
 let enemyEffects = emptyEnemyEffects();
 let defeatedEnemies = [];
 let victoryPending = false;
@@ -113,7 +114,7 @@ function render() {
   <div class="workspace"><header class="topbar"><div class="breadcrumb">${WORLD.name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
   <main>${ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : ui.view === 'squad' ? renderSquadPage() : renderDefense()}</main>
   <footer class="page-footer"><span><i></i> PIXEL ART · PROTÓTIPO JOGÁVEL <b>v0.2</b></span><span>Inspirado em Martial Peak · protótipo independente, sem vínculo oficial.</span></footer></div>`;
-  lastHud = ''; lastPadMarkup = ''; lastTowerMarkup = '';
+  lastHud = ''; lastPadMarkup = ''; lastTowerMarkup = ''; lastSquadMarkup = '';
   if (ui.view === 'defense') { renderDynamic(); updateHud(true); }
 }
 
@@ -139,7 +140,8 @@ function renderDefense() {
 
 function renderSquad() {
   const heroes = squadHeroes();
-  const cards = heroes.map(hero => { const rarity = rarityOf(hero); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${ui.selectedHero === hero.id ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
+  // Each hero defends one platform per stage: a hero already on the map shows "Em campo" and opens its tower.
+  const cards = heroes.map(hero => { const rarity = rarityOf(hero); const onField = engine.state.towers.some(tower => tower.hero.id === hero.id); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''} ${onField ? 'on-field' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"${onField ? ` aria-label="${escapeText(hero.name)}, em campo"` : ''}><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${onField ? '<span class="field-badge">EM CAMPO</span>' : ''}${ui.selectedHero === hero.id && !onField ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
   // Empty slots lead to the squad tab, or to recruitment when every hero is already in the squad.
   const spare = profile.owned.length > profile.squad.length;
   while (cards.length < SQUAD_SIZE) cards.push(`<button class="hero-card empty-hero" data-action="navigate" data-view="${spare ? 'squad' : 'recruit'}"><div>${icon(spare ? 'plus' : 'lock', 22)}<span>Vaga livre</span></div><span>${spare ? 'Montar esquadrão' : 'Recrute um herói'} ${icon('plus', 12)}</span></button>`);
@@ -215,6 +217,10 @@ function renderDynamic() {
     return `<g class="map-tower ${tower.id === ui.selectedTower ? 'chosen' : ''}" data-action="select-tower" data-id="${tower.id}" role="button" tabindex="0" aria-label="${tower.hero.name}, nível ${tower.level}"><ellipse cx="${tower.x}" cy="${tower.y + 3}" rx="19" ry="10" fill="${tower.hero.color}" opacity=".4"/><svg x="${tower.x - w / 2}" y="${tower.y + 6 - h}" width="${w}" height="${h}" viewBox="0 0 120 140">${portrait(tower.hero, 'tower').replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')}</svg><rect x="${tower.x - 13}" y="${tower.y + 10}" width="26" height="13" rx="0" fill="#182820" stroke="#c4cba6" stroke-width=".8"/><text x="${tower.x}" y="${tower.y + 20}" text-anchor="middle">${tower.level}</text><rect x="${tower.x - 25}" y="${tower.y + 6 - h}" width="50" height="${h + 19}" fill="transparent" pointer-events="all"/></g>`;
   }).join('');
   if (towerMarkup !== lastTowerMarkup) { document.querySelector('#tower-layer').innerHTML = towerMarkup; lastTowerMarkup = towerMarkup; }
+  // The squad bar shows who is already on the map; refresh it only when that changes.
+  const squadGrid = document.querySelector('.squad-section .squad-grid');
+  const squadMarkup = squadGrid ? renderSquad() : '';
+  if (squadGrid && squadMarkup !== lastSquadMarkup) { squadGrid.innerHTML = squadMarkup; lastSquadMarkup = squadMarkup; }
   document.querySelector('#enemy-layer').innerHTML = enemyEffects.deaths.map(death => renderEnemy(death.enemy, ui.stage, { dying: true, death: enemyDeathProgress(enemyEffects, death) })).join('')
     + s.enemies.map(enemy => renderEnemy(enemy, ui.stage, { hit: enemyHitEffect(enemyEffects, enemy) })).join('');
   document.querySelector('#projectile-layer').innerHTML = s.projectiles.map(renderProjectile).join('');
@@ -309,7 +315,12 @@ function activate(action, el) {
   if (action === 'sound') { ui.sound = !ui.sound; render(); if (ui.sound) sound(); }
   if (action === 'stages') showStages();
   if (action === 'choose-stage') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id)); }
-  if (action === 'select-hero') { ui.selectedHero = el.dataset.id; ui.selectedTower = null; render(); }
+  if (action === 'select-hero') {
+    ui.selectedHero = el.dataset.id;
+    // A hero already on the map opens its tower (details, upgrade, dismiss) instead of waiting for a platform.
+    ui.selectedTower = engine.state.towers.find(tower => tower.hero.id === el.dataset.id)?.id ?? null;
+    render();
+  }
   if (action === 'select-tower') { ui.selectedTower = el.dataset.id; const tower = engine.state.towers.find(t => String(t.id) === el.dataset.id); ui.selectedTower = tower?.id ?? el.dataset.id; updateHud(true); renderDynamic(); }
   if (action === 'deselect-tower') { ui.selectedTower = null; updateHud(true); renderDynamic(); }
   if (action === 'squad-toggle') {
@@ -329,7 +340,17 @@ function activate(action, el) {
       ? `${name} completou as estrelas de ${starTier(result.stars - 1).name}! As próximas são de ${starTier(result.stars).name}.`
       : `${name} alcançou ${result.stars} ${result.stars === 1 ? 'estrela' : 'estrelas'}.`);
   }
-  if (action === 'place') { const result = engine.placeTower(fighter(ui.selectedHero), el.dataset.id); if (!result.ok) toast(result.reason || 'Não foi possível posicionar o herói.'); else { sound(); ui.selectedTower = null; } updateHud(true); renderDynamic(); }
+  if (action === 'place') {
+    const result = engine.placeTower(fighter(ui.selectedHero), el.dataset.id);
+    if (!result.ok) toast(result.reason || 'Não foi possível posicionar o herói.');
+    else {
+      sound(); ui.selectedTower = null;
+      // The next hero of the squad not yet on the map is ready for the next platform.
+      const next = profile.squad.find(id => !engine.state.towers.some(tower => tower.hero.id === id));
+      if (next) ui.selectedHero = next;
+    }
+    updateHud(true); renderDynamic();
+  }
   if (action === 'upgrade') { const result = engine.upgradeTower(ui.selectedTower); if (!result.ok) toast(result.reason || 'Qi insuficiente.'); updateHud(true); renderDynamic(); }
   if (action === 'sell') { const result = engine.sellTower(ui.selectedTower); if (result?.ok === false) toast(result.reason); ui.selectedTower = null; updateHud(true); renderDynamic(); }
   if (action === 'speed') { ui.speed = ui.speed === 1 ? 2 : 1; engine.setSpeed(ui.speed); document.querySelector('#speed-text')?.replaceChildren(`${ui.speed}×`); document.querySelector('.speed-button')?.classList.toggle('fast', ui.speed === 2); }
