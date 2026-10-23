@@ -1,4 +1,5 @@
 import { renderTerrain as drawTerrain } from './pixel-terrain.js';
+import { STAGES } from './data.js';
 import { sceneryArt } from './chibi-art.js';
 
 const ICONS = {
@@ -41,6 +42,6 @@ export { portrait } from './pixel-portraits.js';
 export function renderTerrain(stage = 1) {
   const url = sceneryArt(stage);
   if (url) return `<image class="painted-terrain" href="${url}" x="0" y="0" width="1000" height="600" preserveAspectRatio="none"/>`;
-  // Stages still waiting for their painting borrow a fitting palette: green for the wilds, blue for the small worlds.
-  return drawTerrain(stage === 7 ? 2 : stage === 10 ? 3 : stage);
+  // Stages still waiting for their painting borrow a fitting palette (stage.terrain in src/data.js).
+  return drawTerrain(STAGES.find(candidate => candidate.id === stage)?.terrain ?? stage);
 }

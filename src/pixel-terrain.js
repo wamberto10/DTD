@@ -5,6 +5,10 @@ const PALETTES = [
   { ground: '#416b49', dark: '#33543d', patch: '#4d7650', grass: '#638455', glint: '#8eaa68', tree: ['#193f35', '#285c43', '#39774d', '#57915a', '#83ad68'], water: ['#244e55', '#316f71', '#479594', '#7cb6a6'], rock: ['#334d42', '#536b55', '#74856a', '#9ca587'], stone: ['#546245', '#7b8057', '#a79d70', '#c1b383', '#d3c493'] },
   { ground: '#355e4c', dark: '#254b3f', patch: '#426d51', grass: '#5c855a', glint: '#90b678', tree: ['#153e37', '#225e49', '#377f5b', '#55a16a', '#88bf7b'], water: ['#1e4e5b', '#286e7d', '#419c9e', '#8bc6b3'], rock: ['#294f49', '#426b5b', '#698879', '#a5b6a1'], stone: ['#45604a', '#768868', '#9ca784', '#bac29b', '#d4d7af'] },
   { ground: '#3c5962', dark: '#2c414e', patch: '#4c6970', grass: '#66818a', glint: '#97b1b0', tree: ['#233f46', '#365c60', '#4d7a75', '#73a097', '#a0c3ad'], water: ['#254663', '#356a8b', '#5c98b2', '#a5cbd0'], rock: ['#2e4656', '#526878', '#82939b', '#c1ccca'], stone: ['#495b61', '#798486', '#a4aca5', '#c1c4b5', '#dedfca'] },
+  // Reino Tong Xuan: ember (demons, the coffin, the Sun clan), frost (ice and bones) and gold (pills, ruins, holy land).
+  { ground: '#5a3d36', dark: '#46302b', patch: '#6a473d', grass: '#7c5544', glint: '#b07a55', tree: ['#2e1a1a', '#4a2626', '#6a3530', '#8c4a3a', '#b8705a'], water: ['#4a1e1e', '#6e2a26', '#9a3e30', '#d07a50'], rock: ['#3e2a28', '#5c403a', '#7e5e52', '#a88a76'], stone: ['#5e4a40', '#82685a', '#a68a74', '#c2a68c', '#d6bfa4'] },
+  { ground: '#7d95a3', dark: '#647c8c', patch: '#8fa5b2', grass: '#a3b8c3', glint: '#dce8ee', tree: ['#2c4250', '#40606e', '#5a808c', '#86a8b2', '#c6dbe0'], water: ['#2c4c6a', '#3e6c8e', '#6a9cbc', '#bcdcec'], rock: ['#4a5e6c', '#6e8494', '#9aaebb', '#dfe9ef'], stone: ['#5e6e78', '#808f99', '#a6b4bc', '#c6d0d6', '#e4eaee'] },
+  { ground: '#5e6040', dark: '#4a4c32', patch: '#6c6e48', grass: '#80804f', glint: '#b8a860', tree: ['#2e3424', '#46502e', '#626e3a', '#86904a', '#bcb86a'], water: ['#2a4a4a', '#3a6a66', '#5a948a', '#a6ccb4'], rock: ['#4a4634', '#6a644a', '#8e866a', '#bcb492'], stone: ['#6a6046', '#8e8260', '#b0a27a', '#cabb90', '#ded2a8'] },
 ];
 
 const rect = (x, y, w, h, fill) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${fill}"/>`;
@@ -117,7 +121,7 @@ function gate() {
 }
 
 export function renderTerrain(stage = 1) {
-  const palette = PALETTES[Math.min(2, Math.max(0, Number(stage) - 1))] || PALETTES[0];
+  const palette = PALETTES[Math.min(PALETTES.length - 1, Math.max(0, Number(stage) - 1))] || PALETTES[0];
   let seed = 71839;
   const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
   const flowers = ['#d5c178', '#b7c68d', '#cc9ca2'];

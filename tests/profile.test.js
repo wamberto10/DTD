@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HEROES, RARITIES, STAGES, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
-import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, STORAGE_KEY } from '../src/profile.js';
+import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, STORAGE_KEY, victoryStars, daoStars, challengeOpen, challengeReward, pullsToPity } from '../src/profile.js';
+import { GACHA_PITY, TALENTS, DAILY } from '../src/data.js';
+import { freeStars, raiseTalent, resetTalents, talentModifiers, talentBonus, dailyMissionIds, dailyMissions, recordDaily, claimDaily, DAILY_COUNTERS } from '../src/profile.js';
 import { FRAGMENTS_PER_COPY, STAR_BONUS, nextStarCost, starBonusPercent, starTier, withStars } from '../src/stars.js';
 
 function memoryStorage() {
@@ -257,4 +259,111 @@ test('saved squads are cleaned, and older saves start with their first five hero
   assert.deepEqual(loadProfile(storage).squad, ['shen-lei', 'mo-yan', 'lin-yue', 'aprendiz', 'su-lan']);
   storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, crystals: 0, owned, squad: ['xing-he'] }));
   assert.deepEqual(loadProfile(storage).squad, ['faxineiro'], 'An empty squad falls back to the Faxineiro.');
+});
+
+test('victories earn up to three stars per stage and keep the best mark', () => {
+  assert.equal(victoryStars(20, 20), 3);
+  assert.equal(victoryStars(14, 20), 2, 'losing 30% of the lives still gives two stars');
+  assert.equal(victoryStars(13, 20), 1);
+  assert.equal(victoryStars(undefined, undefined), 1, 'without the lives of the match, one star');
+  const two = grantVictory(createProfile(), 1, { lives: 15, maxLives: 20 });
+  assert.equal(two.stars, 2);
+  assert.equal(two.profile.stageStars[1], 2);
+  assert.equal(challengeOpen(two.profile, 1), false);
+  const perfect = grantVictory(two.profile, 1, { lives: 20, maxLives: 20 });
+  assert.equal(perfect.stars, 3);
+  assert.equal(perfect.newRecord, true);
+  const worse = grantVictory(perfect.profile, 1, { lives: 1, maxLives: 20 });
+  assert.equal(worse.profile.stageStars[1], 3, 'a worse victory keeps the best mark');
+  assert.equal(worse.newRecord, false);
+  assert.equal(daoStars(worse.profile), 3);
+});
+
+test('the challenge opens after three stars and pays its own reward once', () => {
+  const two = grantVictory(createProfile(), 1, { lives: 15, maxLives: 20 }).profile;
+  assert.equal(grantVictory(two, 1, { lives: 10, maxLives: 10, mode: 'challenge' }).reward, 0, 'closed before three stars');
+  const three = grantVictory(two, 1, { lives: 20, maxLives: 20 }).profile;
+  assert.equal(challengeOpen(three, 1), true);
+  const first = grantVictory(three, 1, { lives: 2, maxLives: 10, mode: 'challenge' });
+  assert.equal(first.challenge, true);
+  assert.equal(first.firstChallenge, true);
+  assert.equal(first.reward, challengeReward(1));
+  assert.equal(first.profile.crystals, three.crystals + challengeReward(1));
+  assert.deepEqual(first.profile.challenges, [1]);
+  assert.equal(daoStars(first.profile), 4, 'a challenge won counts one extra star');
+  const again = grantVictory(first.profile, 1, { lives: 2, maxLives: 10, mode: 'challenge' });
+  assert.equal(again.firstChallenge, false);
+  assert.equal(again.reward, 50);
+  const storage = memoryStorage();
+  saveProfile(first.profile, storage);
+  const loaded = loadProfile(storage);
+  assert.deepEqual(loaded.stageStars, { 1: 3 });
+  assert.deepEqual(loaded.challenges, [1]);
+  // Broken data: stars out of range become one star, and a challenge needs three stars.
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...createProfile(), completedStages: [1, 2], stageStars: { 1: 9, 2: 3 }, challenges: [1, 2, 5] }));
+  const cleaned = loadProfile(storage);
+  assert.deepEqual(cleaned.stageStars, { 1: 1, 2: 3 });
+  assert.deepEqual(cleaned.challenges, [2]);
+});
+
+test('the fiftieth pull without a legendary hero is guaranteed to bring one', () => {
+  // Rolls of 0 always land on the most common rarity.
+  let profile = { ...createProfile(), crystals: 100_000 };
+  for (let i = 0; i < GACHA_PITY.every - 1; i++) profile = summon(profile, 1, () => 0).profile;
+  assert.equal(profile.pity, GACHA_PITY.every - 1);
+  assert.equal(pullsToPity(profile), 1);
+  const pity = summon(profile, 1, () => 0);
+  assert.equal(pity.guaranteed[0], true);
+  assert.equal(pity.heroes[0].rarity, GACHA_PITY.rarity, 'the lowest roll of the pity pull is the guaranteed rarity');
+  assert.equal(pity.profile.pity, 0);
+  // A lucky legendary resets the counter too.
+  const lucky = summon({ ...createProfile(), pity: 20 }, 1, () => 0.999);
+  assert.equal(lucky.guaranteed[0], false);
+  assert.equal(lucky.profile.pity, 0);
+  // Broken counters are cleaned.
+  const storage = memoryStorage();
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...createProfile(), pity: 999 }));
+  assert.equal(loadProfile(storage).pity, 0);
+});
+
+test('talents cost the stars of the Dao and can be shared out again', () => {
+  let profile = createProfile();
+  assert.equal(raiseTalent(profile, 'furia').ok, false, 'no stars yet');
+  for (const stage of [1, 2]) profile = grantVictory(profile, stage, { lives: 20, maxLives: 20 }).profile;
+  assert.equal(freeStars(profile), 6);
+  for (let i = 0; i < 3; i++) profile = raiseTalent(profile, 'furia').profile;
+  assert.equal(profile.talents.furia, 3);
+  assert.equal(freeStars(profile), 0, 'levels 1, 2 and 3 cost 1 + 2 + 3 stars');
+  assert.equal(raiseTalent(profile, 'reserva').ok, false);
+  assert.ok(Math.abs(talentModifiers(profile).damage - 0.09) < 1e-12);
+  assert.equal(talentBonus(TALENTS.find(t => t.id === 'furia'), 3), '+9% de dano em todas as torres');
+  const reset = resetTalents(profile);
+  assert.equal(reset.refund, 6);
+  assert.equal(freeStars(reset.profile), 6);
+  // Talents worth more stars than were earned are returned.
+  const storage = memoryStorage();
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...createProfile(), talents: { furia: 5 } }));
+  assert.equal(loadProfile(storage).talents.furia, 0);
+});
+
+test('daily missions count the day and pay once, with a bonus for all of them', () => {
+  const day = '2026-10-23';
+  assert.equal(new Set(dailyMissionIds(day)).size, DAILY.count);
+  let profile = recordDaily(createProfile(), day, Object.fromEntries(DAILY_COUNTERS.map(key => [key, 1000])));
+  const before = profile.crystals;
+  let paid = 0;
+  for (const mission of dailyMissions(profile, day)) {
+    assert.equal(mission.done, true);
+    const claim = claimDaily(profile, day, mission.id);
+    assert.equal(claim.ok, true);
+    paid += claim.reward;
+    profile = claim.profile;
+    assert.equal(claimDaily(profile, day, mission.id).ok, false, 'each mission pays once');
+  }
+  assert.equal(paid, dailyMissions(profile, day).reduce((sum, m) => sum + m.reward, 0) + DAILY.allDoneBonus);
+  assert.equal(profile.crystals, before + paid);
+  assert.ok(dailyMissions(profile, '2026-10-24').every(m => m.progress === 0 && !m.claimed), 'a new day starts over');
+  const storage = memoryStorage();
+  saveProfile(profile, storage);
+  assert.equal(loadProfile(storage).daily.claimed.length, DAILY.count);
 });

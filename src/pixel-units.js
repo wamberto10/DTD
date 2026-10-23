@@ -65,11 +65,40 @@ function renderPixelEnemy(enemy, showHealth) {
   </g>`;
 }
 
+// Colours of each element's shots and effects.
+export const ELEMENT_COLORS = { fire: '#ff9a4a', lightning: '#ffe56b', ice: '#9fd8ff', nature: '#8fd16a', void: '#b993ff', physical: '#f1e6c4' };
+
+// Colours of the enemy traits shown on the map.
+export const TRAIT_COLORS = { armor: '#a8adb4', enrage: '#ff6b5a', shield: '#7fc4ff', healer: '#8fe3a0', summoner: '#c79bff' };
+// Flying enemies are drawn this high above the road.
+const FLIGHT_HEIGHT = 16;
+
+/** Shield bar, then small marks above an enemy: armor, rage, burning, poisoned (with stacks), slowed. */
+function renderAfflictions(enemy) {
+  const marks = [];
+  if (enemy.armor) marks.push({ color: TRAIT_COLORS.armor, label: '' });
+  if (enemy.enraged) marks.push({ color: TRAIT_COLORS.enrage, label: '' });
+  if (enemy.burnRemaining > 0) marks.push({ color: ELEMENT_COLORS.fire, label: '' });
+  if (enemy.poisonRemaining > 0) marks.push({ color: ELEMENT_COLORS.nature, label: enemy.poisonStacks > 1 ? String(enemy.poisonStacks) : '' });
+  if (enemy.slowRemaining > 0) marks.push({ color: ELEMENT_COLORS.ice, label: '' });
+  const height = ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal;
+  const top = Math.round(enemy.y + 12 - height - 16);
+  const left = Math.round(enemy.x - (marks.length - 1) * 5);
+  const shieldWidth = enemy.kind === 'boss' ? 64 : 32;
+  const shield = enemy.maxShield > 0 && enemy.shield > 0
+    ? `<rect x="${Math.round(enemy.x - shieldWidth / 2)}" y="${top + 3}" width="${(shieldWidth * enemy.shield / enemy.maxShield).toFixed(1)}" height="2.5" fill="${TRAIT_COLORS.shield}"/>` : '';
+  if (!marks.length && !shield) return '';
+  return `<g class="enemy-afflictions" pointer-events="none">${shield}${marks.map((mark, i) => `<circle cx="${left + i * 10}" cy="${top - 4}" r="4" fill="${mark.color}" stroke="#14201a" stroke-width="1.2"/>${mark.label ? `<text x="${left + i * 10}" y="${top - 1.5}" font-size="6" text-anchor="middle" fill="#14201a" font-weight="700">${mark.label}</text>` : ''}`).join('')}</g>`;
+}
+
 export function renderEnemy(enemy, stage, visual = {}) {
   const rig = stage ? enemyRig(stage, enemy.kind) : null;
   const art = !rig && stage ? enemyArt(stage, enemy.kind) : null;
-  const markup = rig ? renderRigEnemy(enemy, rig, ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal, !visual.dying)
+  let markup = rig ? renderRigEnemy(enemy, rig, ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal, !visual.dying)
     : art ? renderPaintedEnemy(enemy, art, !visual.dying) : renderPixelEnemy(enemy, !visual.dying);
+  if (!visual.dying) markup += renderAfflictions(enemy);
+  // Flying enemies float above the road, with their shadow left on the ground.
+  if (enemy.flying) markup = `<ellipse cx="${Math.round(enemy.x)}" cy="${Math.round(enemy.y + 10)}" rx="9" ry="3" fill="#081210" opacity=".3"/><g transform="translate(0 ${-FLIGHT_HEIGHT})">${markup}</g>`;
   if (!visual.dying && !visual.hit) return markup;
   const progress = Math.max(0, Math.min(1, visual.death || 0));
   const opacity = visual.dying ? 1 - progress : .45;
@@ -81,11 +110,16 @@ export function renderEnemy(enemy, stage, visual = {}) {
 export function renderProjectile(projectile) {
   const x = Math.round(projectile.x / 2) * 2;
   const y = Math.round(projectile.y / 2) * 2;
-  const color = projectile.color || '#d8e8a7';
-  return `<g class="projectile pixel-projectile" shape-rendering="crispEdges">
-    ${rect(x - 5, y - 1, 10, 2, color, 'opacity=".45"')}
-    ${rect(x - 1, y - 5, 2, 10, color, 'opacity=".45"')}
-    ${rect(x - 3, y - 3, 6, 6, color)}${rect(x - 1, y - 1, 2, 2, '#fff1c9')}
+  // Element colour (physical keeps the hero's colour); critical hits and skills are drawn bigger.
+  const color = projectile.element && projectile.element !== 'physical' ? ELEMENT_COLORS[projectile.element] : projectile.color || '#d8e8a7';
+  const size = projectile.strong ? 2 : 1;
+  // Lightning draws the arc from where it came from.
+  const arc = projectile.element === 'lightning'
+    ? `<line x1="${Math.round(projectile.fromX)}" y1="${Math.round(projectile.fromY)}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1.5" opacity=".7"/>` : '';
+  return `<g class="projectile pixel-projectile" shape-rendering="crispEdges">${arc}
+    ${rect(x - 5 * size, y - 1, 10 * size, 2, color, 'opacity=".45"')}
+    ${rect(x - 1, y - 5 * size, 2, 10 * size, color, 'opacity=".45"')}
+    ${rect(x - 3 * size, y - 3 * size, 6 * size, 6 * size, color)}${rect(x - 1, y - 1, 2, 2, '#fff1c9')}
   </g>`;
 }
 

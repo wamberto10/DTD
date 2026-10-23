@@ -1,9 +1,10 @@
-import { GameEngine, MAP, WAVE_BREAK_SECONDS } from './engine.js';
-import { HEROES, RARITIES, STAGES, WORLD, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from './data.js';
-import { loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad } from './profile.js';
+import { GameEngine, MAP, WAVE_BREAK_SECONDS, BALANCE } from './engine.js';
+import { HEROES, RARITIES, STAGES, WORLDS, worldOfStage, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, ELEMENTS, TRAITS, PROGRESSION, TALENTS, DAILY } from './data.js';
+import { loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, daoStars, challengeOpen, challengeReward, pullsToPity,
+  freeStars, talentBonus, raiseTalent, resetTalents, talentModifiers, dailyMissions, recordDaily, claimDaily } from './profile.js';
 import { FRAGMENTS_PER_COPY, STARS_PER_TIER, nextStarCost, starBonusPercent, starTier, withStars } from './stars.js';
 import { icon, portrait, renderTerrain } from './art.js';
-import { renderEnemy, renderProjectile, renderPad } from './pixel-units.js';
+import { renderEnemy, renderProjectile, renderPad, ELEMENT_COLORS, TRAIT_COLORS } from './pixel-units.js';
 import { hasPaintedMap } from './maps.js';
 import { enemyArt, heroArt } from './chibi-art.js';
 import { emptyEnemyEffects, advanceEnemyEffects, enemyHitEffect, enemyDeathProgress, disableEnemyRig } from './enemy-rig.js';
@@ -11,7 +12,7 @@ import { emptyEnemyEffects, advanceEnemyEffects, enemyHitEffect, enemyDeathProgr
 const app = document.querySelector('#app');
 const modalRoot = document.querySelector('#modal-root');
 let profile = loadProfile();
-const ui = { view: 'defense', stage: 1, selectedHero: 'faxineiro', selectedTower: null, speed: 1, paused: false, sound: false, filter: 'all', reward: null };
+const ui = { view: 'defense', stage: 1, mode: 'normal', selectedHero: 'faxineiro', selectedTower: null, speed: 1, paused: false, sound: false, filter: 'all', reward: null };
 let engine;
 let toastTimer;
 let audioContext;
@@ -24,10 +25,19 @@ let lastSquadMarkup = '';
 let enemyEffects = emptyEnemyEffects();
 let defeatedEnemies = [];
 let victoryPending = false;
+// Short visual effects on the map (blasts, heals, skills): { x, y, radius, color, age, life }.
+let areaEffects = [];
+// What the current match already sent to the daily missions.
+let dailySent = { kills: 0, skills: 0, upgrades: 0, bosses: 0 };
+// Today's date (YYYY-MM-DD, local time): the daily missions change at midnight.
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 const heroById = id => HEROES.find(h => h.id === id);
 const rarityOf = hero => RARITIES.find(r => r.id === hero.rarity);
 const stageInfo = () => STAGES.find(s => s.id === ui.stage) || STAGES[0];
+// Stages of a world already cleared, and how many it has.
+const worldDone = world => profile.completedStages.filter(id => id >= world.firstStage && id <= world.lastStage).length;
+const worldSize = world => world.lastStage - world.firstStage + 1;
 const starsOf = id => profile.stars?.[id] || 0;
 // The hero as it fights: base attributes plus the bonus of its stars.
 const fighter = id => withStars(heroById(id), starsOf(id));
@@ -57,8 +67,23 @@ keepSelectionInSquad();
 engine = makeEngine();
 
 function makeEngine() {
-  return new GameEngine({ stage: ui.stage, heroes: squadHeroes(), onEvent: onEngineEvent });
+  return new GameEngine({ stage: ui.stage, heroes: squadHeroes(), onEvent: onEngineEvent, mode: ui.mode, modifiers: talentModifiers(profile) });
 }
+
+/** Sends what the match did since the last time to the daily missions. Returns true when something changed. */
+function flushDaily(extra = {}) {
+  if (!engine) return false;
+  const s = engine.state;
+  const counts = { kills: s.kills - dailySent.kills, skills: s.skillsCast - dailySent.skills, upgrades: s.upgrades - dailySent.upgrades, bosses: s.bossKills - dailySent.bosses, ...extra };
+  dailySent = { kills: s.kills, skills: s.skillsCast, upgrades: s.upgrades, bosses: s.bossKills };
+  if (!Object.values(counts).some(value => value > 0)) return false;
+  profile = recordDaily(profile, today(), counts);
+  return true;
+}
+
+// Something to collect on the Cultivo page: free stars for a talent, or a finished mission.
+const cultivationReady = () => TALENTS.some(t => profile.talents?.[t.id] < t.maxLevel && freeStars(profile) > profile.talents[t.id])
+  || dailyMissions(profile, today()).some(m => m.done && !m.claimed);
 
 function sound(kind = 'click') {
   if (!ui.sound) return;
@@ -87,14 +112,18 @@ function toast(message) {
 
 function onEngineEvent(event) {
   if (event.type === 'kill') { defeatedEnemies.push({ ...event.enemy }); sound('kill'); }
+  if (event.type === 'heal') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: TRAIT_COLORS.healer, age: 0, life: .5 });
+  if (event.type === 'summon') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: TRAIT_COLORS.summoner, age: 0, life: .5 });
+  if (event.type === 'splash') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: ELEMENT_COLORS[event.tower?.hero.element] || '#f1e6c4', age: 0, life: .35 });
   if (event.type === 'waveComplete' && engine.state.status === 'preparing') toast(`Onda ${engine.state.wave} concluída. A próxima começa em ${WAVE_BREAK_SECONDS} segundos.`);
   if (event.type === 'victory') {
-    const result = grantVictory(profile, ui.stage);
+    flushDaily({ victories: 1, perfect: engine.state.lives === engine.state.maxLives ? 1 : 0 });
+    const result = grantVictory(profile, ui.stage, { lives: engine.state.lives, maxLives: engine.state.maxLives, mode: engine.state.mode });
     profile = result.profile; ui.reward = result; persist(); sound('victory');
     // Let the last enemy finish falling, using the same pausable clock as every other effect.
     victoryPending = true;
   }
-  if (event.type === 'defeat') setTimeout(() => { render(); showResult(false); }, 80);
+  if (event.type === 'defeat') { if (flushDaily()) persist(); setTimeout(() => { render(); showResult(false); }, 80); }
 }
 
 function logo() {
@@ -102,17 +131,17 @@ function logo() {
 }
 
 function render() {
-  const navs = [['defense', 'swords', 'Defesa'], ['squad', 'shield', 'Esquadrão'], ['recruit', 'gem', 'Recrutamento'], ['heroes', 'users', 'Meus heróis']];
+  const navs = [['defense', 'swords', 'Defesa'], ['squad', 'shield', 'Esquadrão'], ['recruit', 'gem', 'Recrutamento'], ['heroes', 'users', 'Meus heróis'], ['cultivation', 'star', 'Cultivo']];
   app.innerHTML = `<aside class="sidebar">
     <a href="#" class="brand" data-action="navigate" data-view="defense" aria-label="DTD início">${logo()}<span><strong>DTD<span class="brand-dot">.</span></strong><small>DAO TOWER DEFENSE</small></span></a>
     <div class="sidebar-label">SEU CAMINHO</div>
-    <nav aria-label="Navegação principal">${navs.map(([id, glyph, text]) => `<button class="nav-item ${ui.view === id ? 'active' : ''}" data-action="navigate" data-view="${id}">${icon(glyph)}<span>${text}</span>${id === 'recruit' && profile.crystals >= GACHA_COST ? '<span class="nav-dot"></span>' : ''}</button>`).join('')}</nav>
+    <nav aria-label="Navegação principal">${navs.map(([id, glyph, text]) => `<button class="nav-item ${ui.view === id ? 'active' : ''}" data-action="navigate" data-view="${id}">${icon(glyph)}<span>${text}</span>${(id === 'recruit' && profile.crystals >= GACHA_COST) || (id === 'cultivation' && cultivationReady()) ? '<span class="nav-dot"></span>' : ''}</button>`).join('')}</nav>
     <div class="sidebar-art"><span class="vertical-script">道法自然</span><div class="mountain mountain-one"></div><div class="mountain mountain-two"></div><div class="mountain mountain-three"></div><div class="little-sun"></div></div>
-    <div class="journey-card"><span class="eyebrow">A JORNADA DA ASCENSÃO</span><div><span>${WORLD.name}</span><span>${profile.completedStages.length}/${STAGES.length}</span></div><div class="journey-track"><i style="width:${profile.completedStages.length / STAGES.length * 100}%"></i></div><p>Até o maior mestre deu<br>seu primeiro passo.</p></div>
+    <div class="journey-card"><span class="eyebrow">A JORNADA DA ASCENSÃO</span><div><span>${worldOfStage(ui.stage).name}</span><span>${worldDone(worldOfStage(ui.stage))}/${worldSize(worldOfStage(ui.stage))}</span></div><div class="journey-track"><i style="width:${worldDone(worldOfStage(ui.stage)) / worldSize(worldOfStage(ui.stage)) * 100}%"></i></div><div class="journey-stars">${icon('star', 11)} ${daoStars(profile)} estrelas do Dao</div><p>Até o maior mestre deu<br>seu primeiro passo.</p></div>
     <div class="player-card"><div class="player-avatar">${icon('sword', 20)}</div><div><strong>Cultivador</strong><span>Discípulo iniciante</span></div><span class="online-dot" title="Progresso local"></span></div>
   </aside>
-  <div class="workspace"><header class="topbar"><div class="breadcrumb">${WORLD.name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
-  <main>${ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : ui.view === 'squad' ? renderSquadPage() : renderDefense()}</main>
+  <div class="workspace"><header class="topbar"><div class="breadcrumb">${worldOfStage(ui.stage).name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão', cultivation: 'Talentos e missões' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
+  <main>${ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : ui.view === 'squad' ? renderSquadPage() : ui.view === 'cultivation' ? renderCultivation() : renderDefense()}</main>
   <footer class="page-footer"><span><i></i> PIXEL ART · PROTÓTIPO JOGÁVEL <b>v0.2</b></span><span>Inspirado em Martial Peak · protótipo independente, sem vínculo oficial.</span></footer></div>`;
   lastHud = ''; lastPadMarkup = ''; lastTowerMarkup = ''; lastSquadMarkup = '';
   if (ui.view === 'defense') { renderDynamic(); updateHud(true); }
@@ -126,10 +155,10 @@ function renderDefense() {
   const stage = stageInfo();
   return `${pageHeading('PROTEJA O SEU LEGADO', 'O caminho começa aqui<span>.</span>', 'Reúna seus cultivadores. Canalize seu Qi. Defenda o caminho do Dao.', `<button class="subtle-button" data-action="stages">${icon('flag', 16)} Selecionar fase ${icon('chevronRight', 14)}</button>`)}
     <div class="battle-layout"><section class="battle-section" aria-label="Campo de batalha">
-    <div class="battle-toolbar"><div class="map-title"><span class="map-status-dot"></span><strong>${escapeText(stage.name)}</strong><span class="tiny-tag">${stage.difficulty.toUpperCase()}</span></div><div class="toolbar-controls"><button class="icon-button" data-action="restart" title="Reiniciar fase" aria-label="Reiniciar fase">${icon('refresh', 16)}</button><span></span><button class="icon-button pause-button ${ui.paused ? 'active' : ''}" id="pause-button" data-action="pause" title="Pausar (P)" aria-label="Pausar partida" ${inBattle() ? '' : 'disabled'}>${icon(ui.paused ? 'play' : 'pause', 16)}</button><button class="speed-button ${ui.speed === 2 ? 'fast' : ''}" data-action="speed" title="Alternar velocidade (2)">${icon('speed', 16)}<span id="speed-text">${ui.speed}×</span></button></div></div>
-    <div class="map-container ${hasPaintedMap(ui.stage) ? 'painted' : ''}"><svg class="battle-map ${hasPaintedMap(ui.stage) ? 'painted-map' : ''}" viewBox="0 0 ${MAP.width} ${MAP.height}" role="group" aria-label="${escapeText(stage.name)}: caminho dos inimigos e nove posições para torres">${renderTerrain(ui.stage)}<g id="range-layer"></g><g id="pad-layer"></g><g id="tower-layer"></g><g id="enemy-layer"></g><g id="projectile-layer"></g></svg>
+    <div class="battle-toolbar"><div class="map-title"><span class="map-status-dot"></span><strong>${escapeText(stage.name)}</strong><span class="tiny-tag">${stage.difficulty.toUpperCase()}</span>${ui.mode === 'challenge' ? '<span class="challenge-tag">DESAFIO</span>' : stageStarsRow(profile.stageStars?.[ui.stage] || 0, 12)}</div><div class="toolbar-controls"><button class="icon-button" data-action="restart" title="Reiniciar fase" aria-label="Reiniciar fase">${icon('refresh', 16)}</button><span></span><button class="icon-button pause-button ${ui.paused ? 'active' : ''}" id="pause-button" data-action="pause" title="Pausar (P)" aria-label="Pausar partida" ${inBattle() ? '' : 'disabled'}>${icon(ui.paused ? 'play' : 'pause', 16)}</button><button class="speed-button ${ui.speed === 2 ? 'fast' : ''}" data-action="speed" title="Alternar velocidade (2)">${icon('speed', 16)}<span id="speed-text">${ui.speed}×</span></button></div></div>
+    <div class="map-container ${hasPaintedMap(ui.stage) ? 'painted' : ''}"><svg class="battle-map ${hasPaintedMap(ui.stage) ? 'painted-map' : ''}" viewBox="0 0 ${MAP.width} ${MAP.height}" role="group" aria-label="${escapeText(stage.name)}: caminho dos inimigos e nove posições para torres">${renderTerrain(ui.stage)}<g id="range-layer"></g><g id="pad-layer"></g><g id="tower-layer"></g><g id="enemy-layer"></g><g id="projectile-layer"></g><g id="effect-layer" pointer-events="none"></g></svg>
     <div class="map-hud"><span id="wave-countdown" class="hud-pill wave-countdown hidden" aria-live="polite"></span><span class="hud-pill lives">${icon('heart', 16)}<b id="hud-lives">20</b><small>VIDAS</small></span><span class="hud-pill qi">${icon('qi', 17)}<b id="hud-qi">180</b><small>QI</small></span></div>
-    <div class="map-level"><span>${WORLD.name.toUpperCase()} · ${String(ui.stage).padStart(2, '0')} · ${stage.realm.toUpperCase()}</span><strong>${escapeText(stage.name)}</strong><small>${escapeText(stage.subtitle)}.</small></div>
+    <div class="map-level"><span>${worldOfStage(ui.stage).name.toUpperCase()} · ${String(ui.stage).padStart(2, '0')} · ${stage.realm.toUpperCase()}</span><strong>${escapeText(stage.name)}</strong><small>${escapeText(stage.subtitle)}.</small></div>
     <div class="map-compass"><span>N</span><svg viewBox="0 0 32 32"><path d="m16 2 5 14-5 14-5-14Z" fill="#dccba0"/><path d="m16 16 14 0-14 5L2 16Z" fill="#b4b28d" opacity=".4"/></svg></div>
     <div id="pause-overlay" class="pause-overlay ${ui.paused ? '' : 'hidden'}"><span>${icon('pause', 28)}</span><h3>A jornada pode esperar.</h3><button class="primary-button" data-action="pause">Continuar partida</button></div>
     <div class="map-hint">${icon('plus', 12)} Selecione um herói e clique em um círculo para posicionar</div></div>
@@ -141,7 +170,7 @@ function renderDefense() {
 function renderSquad() {
   const heroes = squadHeroes();
   // Each hero defends one platform per stage: a hero already on the map shows "Em campo" and opens its tower.
-  const cards = heroes.map(hero => { const rarity = rarityOf(hero); const onField = engine.state.towers.some(tower => tower.hero.id === hero.id); return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''} ${onField ? 'on-field' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"${onField ? ` aria-label="${escapeText(hero.name)}, em campo"` : ''}><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${onField ? '<span class="field-badge">EM CAMPO</span>' : ''}${ui.selectedHero === hero.id && !onField ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
+  const cards = heroes.map(hero => { const rarity = rarityOf(hero); const onField = engine.state.towers.some(tower => tower.hero.id === hero.id); const fieldTower = engine.state.towers.find(tower => tower.hero.id === hero.id); const ready = engine.skillReady(fieldTower); const charge = fieldTower && hero.skill ? Math.min(100, Math.round(fieldTower.skillCharge / hero.skill.cooldown * 100)) : 0; return `<button class="hero-card ${ui.selectedHero === hero.id ? 'selected' : ''} ${onField ? 'on-field' : ''}" style="--hero-color:${rarity.color}" data-action="select-hero" data-id="${hero.id}" aria-pressed="${ui.selectedHero === hero.id}"${onField ? ` aria-label="${escapeText(hero.name)}, em campo"` : ''}><div class="hero-portrait">${portrait(hero)}<span class="hero-rarity">${rarity.name}</span>${onField ? `<span class="field-badge ${ready ? 'skill-ready' : ''}">${ready ? 'HABILIDADE PRONTA' : 'EM CAMPO'}</span>${hero.skill ? `<span class="skill-bar"><i style="width:${charge}%"></i></span>` : ''}` : ''}${ui.selectedHero === hero.id && !onField ? `<span class="hero-check">${icon('check', 11)}</span>` : ''}</div><div class="hero-card-info"><strong>${escapeText(hero.name)}</strong><span>${icon('qi', 12)} ${hero.cost} Qi <span class="${hero.stars ? 'card-stars' : ''}">${hero.stars ? `${hero.stars}★` : 'NV. 1'}</span></span></div></button>`; });
   // Empty slots lead to the squad tab, or to recruitment when every hero is already in the squad.
   const spare = profile.owned.length > profile.squad.length;
   while (cards.length < SQUAD_SIZE) cards.push(`<button class="hero-card empty-hero" data-action="navigate" data-view="${spare ? 'squad' : 'recruit'}"><div>${icon(spare ? 'plus' : 'lock', 22)}<span>Vaga livre</span></div><span>${spare ? 'Montar esquadrão' : 'Recrute um herói'} ${icon('plus', 12)}</span></button>`);
@@ -168,12 +197,30 @@ function renderSquadPage() {
     <section class="squad-roster"><div class="section-heading"><div><h2>Seus heróis <span>${profile.owned.length}</span></h2><p>Clique em um herói para colocá-lo ou tirá-lo da formação.</p></div><button class="text-button" data-action="navigate" data-view="recruit">Recrutar mais ${icon('arrowRight', 14)}</button></div><div class="collection-grid">${cards}</div></section>`;
 }
 
+// What this stage's enemies can do, for the preview: "Javali de Presas de Ferro: Armadura · Chefe: Fúria".
+function stageTraitsLine(stage) {
+  const parts = ['normal', 'fast', 'brute', 'boss']
+    .filter(kind => stage.traits?.[kind]?.length)
+    .map(kind => `${kind === 'boss' ? 'Chefe' : escapeText(stage.enemies[kind])}: ${stage.traits[kind].map(id => TRAITS[id]?.name || id).join(', ')}`);
+  return parts.length ? `<em class="enemy-traits" title="${parts.join(' · ')}">${parts.join(' · ')}</em>` : '';
+}
+
+// What a hero does beyond its numbers (element, area, skill), in plain words.
+function heroAbilities(hero) {
+  const lines = [];
+  const element = ELEMENTS[hero.element];
+  if (element) lines.push(`<li><b>${element.name}</b> ${element.effect}</li>`);
+  if (hero.skill) lines.push(`<li><b>Habilidade · ${hero.skill.name}</b> ${hero.skill.description} Recarga: ${hero.skill.cooldown} s de onda.</li>`);
+  if (hero.splash) lines.push(`<li><b>Área</b> Também atinge os inimigos até ${hero.splash.radius} de distância do alvo, com ${Math.round(hero.splash.fraction * 100)}% do dano (menos os voadores).</li>`);
+  return lines.length ? `<ul class="hero-abilities">${lines.join('')}</ul>` : '';
+}
+
 function renderCommandPanel() {
   const s = engine.state;
   const tower = s.towers.find(t => t.id === ui.selectedTower);
   if (tower) {
     const hero = tower.hero; const rarity = rarityOf(hero); const stats = engine.getTowerStats(tower); const cost = engine.getNextUpgradeCost(tower);
-    return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">CULTIVADOR EM CAMPO</span><button class="icon-button" data-action="deselect-tower" aria-label="Fechar detalhes">${icon('close', 15)}</button></div><div class="tower-detail"><div class="detail-portrait" style="--hero-color:${rarity.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${rarity.color}">${rarity.name}</span><h2>${hero.name}</h2><span class="level-badge">NÍVEL ${tower.level}</span></div><div class="stat-row"><span>${icon('sword', 15)} Dano</span><b>${Math.round(stats.damage)}</b></div><div class="stat-row"><span>${icon('shield', 15)} Alcance</span><b>${Math.round(stats.range)}</b></div><div class="stat-row"><span>${icon('speed', 15)} Ataques / s</span><b>${Number(stats.attackSpeed).toFixed(1)}</b></div><button class="primary-button upgrade-button" data-action="upgrade" ${!Number.isFinite(cost) || s.qi < cost || s.status === 'victory' || s.status === 'defeat' ? 'disabled' : ''}>${icon('arrowUp', 17)} ${Number.isFinite(cost) ? `Melhorar · ${cost} Qi` : 'Nível máximo'}</button><button class="sell-button" data-action="sell">Dispensar · recuperar ${Math.floor(tower.spent * .7)} Qi</button><p class="rail-note">As melhorias duram apenas nesta fase.</p></div>`;
+    return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">CULTIVADOR EM CAMPO</span><button class="icon-button" data-action="deselect-tower" aria-label="Fechar detalhes">${icon('close', 15)}</button></div><div class="tower-detail"><div class="detail-portrait" style="--hero-color:${rarity.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${rarity.color}">${rarity.name}</span><h2>${hero.name}</h2><span class="level-badge">NÍVEL ${tower.level}</span></div>${heroAbilities(hero)}<div class="stat-row"><span>${icon('sword', 15)} Dano</span><b>${Math.round(stats.damage)}</b></div><div class="stat-row"><span>${icon('shield', 15)} Alcance</span><b>${Math.round(stats.range)}</b></div><div class="stat-row"><span>${icon('speed', 15)} Ataques / s</span><b>${Number(stats.attackSpeed).toFixed(1)}</b></div>${hero.skill ? `<button class="skill-button ${engine.skillReady(tower) ? 'ready' : ''}" data-action="use-skill" ${engine.skillReady(tower) && s.status === 'running' ? '' : 'disabled'}>${icon('sparkles', 15)} ${hero.skill.name} · ${engine.skillReady(tower) ? 'usar habilidade' : `${Math.min(100, Math.round(tower.skillCharge / hero.skill.cooldown * 100))}%`}</button>` : ''}<button class="primary-button upgrade-button" data-action="upgrade" ${!Number.isFinite(cost) || s.qi < cost || s.status === 'victory' || s.status === 'defeat' ? 'disabled' : ''}>${icon('arrowUp', 17)} ${Number.isFinite(cost) ? `Melhorar · ${cost} Qi` : 'Nível máximo'}</button><button class="sell-button" data-action="sell">Dispensar · recuperar ${Math.floor(tower.spent * .7)} Qi</button><p class="rail-note">As melhorias duram apenas nesta fase.</p></div>`;
   }
   const current = Math.min(s.wave + (s.status === 'preparing' ? 1 : 0), s.totalWaves);
   const stage = stageInfo();
@@ -187,13 +234,37 @@ function renderCommandPanel() {
     : s.status === 'defeat' ? 'Reposicione os heróis e tente uma nova estratégia.'
     : cd !== null ? (ui.paused ? 'Partida pausada. A contagem continua quando você voltar.' : 'As ondas seguem sozinhas. Aproveite para posicionar e melhorar seus heróis.')
     : `Posicione seus heróis e inicie a primeira onda. Depois, cada onda começa sozinha ${WAVE_BREAK_SECONDS} segundos após a anterior.`;
-  return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">${eyebrow}</span><span class="small-orbit">${icon('swords', 16)}</span></div><h2 class="${cd !== null ? 'countdown-title' : ''}">${title}</h2><p class="command-description">${description}</p><div class="wave-info"><span>Onda <b>${current}</b> de ${s.totalWaves}</span><span>${Math.round(s.wave / s.totalWaves * 100)}%</span></div><div class="wave-track">${Array.from({ length: s.totalWaves }, (_, i) => `<span class="${i < s.wave ? 'completed' : ''} ${i === s.wave - 1 && s.status === 'running' ? 'ongoing' : ''}"></span>`).join('')}</div><div class="enemy-preview"><div class="enemy-face ${preview ? 'painted' : ''}">${preview ? `<img src="${preview.url}" alt="">` : icon(bossNext ? 'shield' : 'sword', 23)}</div><div><strong>${escapeText(bossNext ? stage.enemies.boss : stage.enemies.normal)}</strong><span>${bossNext ? 'O chefe da fase se aproxima' : `Também: ${escapeText(stage.enemies.fast)} e ${escapeText(stage.enemies.brute)}`}</span></div></div><button class="primary-button wave-button" data-action="wave">${icon(s.status === 'running' ? (ui.paused ? 'play' : 'pause') : s.status === 'victory' ? 'flag' : s.status === 'defeat' ? 'refresh' : 'play', 16)}<span>${s.status === 'running' ? (ui.paused ? 'Continuar onda' : 'Pausar onda') : s.status === 'victory' ? 'Próxima fase' : s.status === 'defeat' ? 'Tentar novamente' : cd !== null ? 'Começar agora' : 'Iniciar onda'}</span>${s.status === 'preparing' ? '<kbd>ESPAÇO</kbd>' : ''}</button><p class="rail-note">${icon('qi', 12)} Elimine inimigos para acumular Qi.</p></div><div class="selected-hero-note">${icon('users', 16)}<span>Selecionado: <strong>${heroById(ui.selectedHero)?.name || 'Faxineiro'}</strong></span></div>`;
+  return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">${eyebrow}</span><span class="small-orbit">${icon('swords', 16)}</span></div><h2 class="${cd !== null ? 'countdown-title' : ''}">${title}</h2><p class="command-description">${description}</p><div class="wave-info"><span>Onda <b>${current}</b> de ${s.totalWaves}</span><span>${Math.round(s.wave / s.totalWaves * 100)}%</span></div><div class="wave-track">${Array.from({ length: s.totalWaves }, (_, i) => `<span class="${i < s.wave ? 'completed' : ''} ${i === s.wave - 1 && s.status === 'running' ? 'ongoing' : ''}"></span>`).join('')}</div><div class="enemy-preview"><div class="enemy-face ${preview ? 'painted' : ''}">${preview ? `<img src="${preview.url}" alt="">` : icon(bossNext ? 'shield' : 'sword', 23)}</div><div><strong>${escapeText(bossNext ? stage.enemies.boss : stage.enemies.normal)}</strong><span>${bossNext ? 'O chefe da fase se aproxima' : `Também: ${escapeText(stage.enemies.fast)} e ${escapeText(stage.enemies.brute)}`}</span>${stageTraitsLine(stage)}</div></div><button class="primary-button wave-button" data-action="wave">${icon(s.status === 'running' ? (ui.paused ? 'play' : 'pause') : s.status === 'victory' ? 'flag' : s.status === 'defeat' ? 'refresh' : 'play', 16)}<span>${s.status === 'running' ? (ui.paused ? 'Continuar onda' : 'Pausar onda') : s.status === 'victory' ? 'Próxima fase' : s.status === 'defeat' ? 'Tentar novamente' : cd !== null ? 'Começar agora' : 'Iniciar onda'}</span>${s.status === 'preparing' ? '<kbd>ESPAÇO</kbd>' : ''}</button><p class="rail-note">${icon('qi', 12)} Elimine inimigos para acumular Qi.</p></div><div class="selected-hero-note">${icon('users', 16)}<span>Selecionado: <strong>${heroById(ui.selectedHero)?.name || 'Faxineiro'}</strong></span></div>`;
 }
 
 function renderRecruit() {
   return `${pageHeading('O DESTINO REÚNE OS ESCOLHIDOS', 'Pavilhão de recrutamento<span>.</span>', 'Além das montanhas, novos aliados aguardam o seu chamado.')}
   <section class="summon-banner"><div class="summon-copy"><span class="event-badge">${icon('sparkles', 14)} RECRUTAMENTO PERMANENTE</span><h2>Todo encontro<br>muda o destino.</h2><p>Do primeiro discípulo ao mestre supremo.<br>Invoque cultivadores e descubra o seu potencial.</p><div class="summon-highlights"><span>7 raridades</span><i></i><span>14 cultivadores</span><i></i><span>Uma jornada sem limites</span></div></div><div class="summon-art"><div class="summon-ring ring-one"></div><div class="summon-ring ring-two"></div><span class="summon-rune rune-one">道</span><span class="summon-rune rune-two">气</span><div class="banner-hero banner-hero-left">${portrait(HEROES.find(h => h.rarity === 'legendary'), 'banner')}</div><div class="banner-hero banner-hero-right">${portrait(HEROES.find(h => h.rarity === 'ur'), 'banner')}</div><div class="banner-hero banner-hero-main">${portrait(HEROES.find(h => h.rarity === 'urplus'), 'banner')}</div><span class="summon-particle p1"></span><span class="summon-particle p2"></span><span class="summon-particle p3"></span></div></section>
-  <div class="recruit-bottom"><section class="summon-controls"><div><span class="eyebrow">CRISTAIS DO DAO</span><h2>Responda ao chamado.</h2><p>Cada invocação garante um herói. Repetidos viram ${FRAGMENTS_PER_COPY} fragmentos para elevar as estrelas dele.</p></div><div class="summon-buttons"><button class="secondary-button summon-single" data-action="summon" data-count="1" ${profile.crystals < GACHA_COST ? 'disabled' : ''}>Invocar 1 herói <span>${icon('gem', 16)} ${GACHA_COST}</span></button><button class="primary-button summon-ten" data-action="summon" data-count="10" ${profile.crystals < GACHA_TEN_COST ? 'disabled' : ''}>${icon('sparkles', 17)} Invocar 10 heróis <span>${icon('gem', 16)} ${GACHA_TEN_COST}</span><small>10% DE DESCONTO</small></button></div><div class="summon-balance">Seu saldo: <b>${profile.crystals} cristais</b><span>Ganhe mais concluindo fases.</span></div></section><section class="probability-card"><div class="section-heading"><h2>O destino em números</h2>${icon('gem', 17)}</div><p>Chances por invocação · sem garantia acumulada</p><div class="probability-grid">${RARITIES.map(r => `<div><span><i style="background:${r.color}"></i>${r.name}</span><b>${(r.chance * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b></div>`).join('')}</div></section></div>`;
+  <div class="recruit-bottom"><section class="summon-controls"><div><span class="eyebrow">CRISTAIS DO DAO</span><h2>Responda ao chamado.</h2><p>Cada invocação garante um herói. Repetidos viram ${FRAGMENTS_PER_COPY} fragmentos para elevar as estrelas dele.</p></div><div class="summon-buttons"><button class="secondary-button summon-single" data-action="summon" data-count="1" ${profile.crystals < GACHA_COST ? 'disabled' : ''}>Invocar 1 herói <span>${icon('gem', 16)} ${GACHA_COST}</span></button><button class="primary-button summon-ten" data-action="summon" data-count="10" ${profile.crystals < GACHA_TEN_COST ? 'disabled' : ''}>${icon('sparkles', 17)} Invocar 10 heróis <span>${icon('gem', 16)} ${GACHA_TEN_COST}</span><small>10% DE DESCONTO</small></button></div><div class="summon-balance">Seu saldo: <b>${profile.crystals} cristais</b><span>Ganhe mais concluindo fases.</span></div></section><section class="probability-card"><div class="section-heading"><h2>O destino em números</h2>${icon('gem', 17)}</div><p>Chances por invocação · ${RARITIES.find(r => r.id === GACHA_PITY.rarity).name} ou melhor garantido a cada ${GACHA_PITY.every} invocações</p>${pityMeter()}<div class="probability-grid">${RARITIES.map(r => `<div><span><i style="background:${r.color}"></i>${r.name}</span><b>${(r.chance * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%</b></div>`).join('')}</div></section></div>`;
+}
+
+// Talents bought with the stars of the Dao, and the missions of the day.
+function renderCultivation() {
+  const free = freeStars(profile);
+  const missions = dailyMissions(profile, today());
+  const claimedAll = missions.every(m => m.claimed);
+  const talentCards = TALENTS.map(t => {
+    const level = profile.talents[t.id];
+    const maxed = level >= t.maxLevel;
+    const cost = level + 1;
+    return `<article class="talent-card ${maxed ? 'maxed' : ''}"><div class="talent-head"><strong>${escapeText(t.name)}</strong><span class="talent-pips">${Array.from({ length: t.maxLevel }, (_, i) => `<i class="${i < level ? 'on' : ''}"></i>`).join('')}</span></div><p>${escapeText(t.description)}</p><div class="talent-bonus"><span>${level ? escapeText(talentBonus(t, level)) : 'Ainda não aprendido'}</span>${maxed ? '' : `<em>${icon('chevronRight', 11)} ${escapeText(talentBonus(t, level + 1))}</em>`}</div><button class="${maxed ? 'secondary-button' : 'primary-button'} talent-button" data-action="talent-up" data-id="${t.id}" ${maxed || free < cost ? 'disabled' : ''}>${maxed ? 'Nível máximo' : `${icon('star', 14)} Aprender · ${cost} ${cost === 1 ? 'estrela' : 'estrelas'}`}</button></article>`;
+  }).join('');
+  const missionRows = missions.map(m => `<div class="mission ${m.done ? 'done' : ''} ${m.claimed ? 'claimed' : ''}"><div class="mission-text"><strong>${escapeText(m.text)}</strong><div class="mission-track"><i style="width:${m.progress / m.goal * 100}%"></i></div><small>${m.progress}/${m.goal}</small></div><button class="${m.done && !m.claimed ? 'primary-button' : 'secondary-button'} mission-button" data-action="claim-mission" data-id="${m.id}" ${m.done && !m.claimed ? '' : 'disabled'}>${m.claimed ? `${icon('check', 14)} Recebida` : `${icon('gem', 14)} ${m.reward}`}</button></div>`).join('');
+  return `${pageHeading('O CAMINHO É LONGO', 'Cultivo<span>.</span>', 'Gaste as estrelas do Dao em talentos permanentes e cumpra as missões do dia por cristais.', `<span class="collection-count">${icon('star', 18)}<b>${free}</b> de ${daoStars(profile)} estrelas livres</span>`)}
+  <div class="cultivation-layout"><section class="talent-panel"><div class="section-heading"><h2>Talentos permanentes</h2><button class="text-button" data-action="talent-reset">Redistribuir estrelas</button></div><p class="panel-note">Cada nível custa tantas estrelas quanto o seu número. Ganhe estrelas vencendo fases sem perder vidas e vencendo desafios. Os talentos valem a partir da próxima partida.</p><div class="talent-grid">${talentCards}</div></section>
+  <section class="daily-panel"><div class="section-heading"><h2>Missões do dia</h2><span class="panel-note">Renovam à meia-noite</span></div>${missionRows}<p class="panel-note ${claimedAll ? 'done' : ''}">${claimedAll ? `${icon('check', 12)} Todas recebidas hoje. Volte amanhã.` : `Receba as ${DAILY.count} e ganhe mais ${DAILY.allDoneBonus} cristais.`}</p></section></div>`;
+}
+
+// How close the guaranteed legendary pull is.
+function pityMeter() {
+  const left = pullsToPity(profile);
+  const name = RARITIES.find(r => r.id === GACHA_PITY.rarity).name;
+  return `<div class="pity-meter"><div><span>${icon('star', 12)} Garantia</span><b>${left === 1 ? `${name} garantido na próxima invocação` : `${name} garantido em ${left} invocações`}</b></div><div class="pity-track"><i style="width:${(GACHA_PITY.every - left) / GACHA_PITY.every * 100}%"></i></div></div>`;
 }
 
 function renderHeroes() {
@@ -224,13 +295,18 @@ function renderDynamic() {
   document.querySelector('#enemy-layer').innerHTML = enemyEffects.deaths.map(death => renderEnemy(death.enemy, ui.stage, { dying: true, death: enemyDeathProgress(enemyEffects, death) })).join('')
     + s.enemies.map(enemy => renderEnemy(enemy, ui.stage, { hit: enemyHitEffect(enemyEffects, enemy) })).join('');
   document.querySelector('#projectile-layer').innerHTML = s.projectiles.map(renderProjectile).join('');
+  const effects = document.querySelector('#effect-layer');
+  if (effects) effects.innerHTML = areaEffects.map(effect => { const t = effect.age / effect.life; return `<circle cx="${effect.x}" cy="${effect.y}" r="${(effect.radius * (.55 + .45 * t)).toFixed(1)}" fill="${effect.color}" fill-opacity="${(.22 * (1 - t)).toFixed(3)}" stroke="${effect.color}" stroke-opacity="${(.8 * (1 - t)).toFixed(3)}" stroke-width="2"/>`; }).join('');
 }
 
 function updateHud(force = false) {
   if (ui.view !== 'defense') return;
   const s = engine.state;
   const cd = countdown();
-  const key = `${s.lives}-${s.qi}-${s.wave}-${s.status}-${s.kills}-${ui.selectedTower}-${ui.paused}-${cd}`;
+  // The selected tower's skill charge (in 5% steps) also refreshes the panel.
+  const chosen = s.towers.find(tower => tower.id === ui.selectedTower);
+  const charge = chosen?.hero.skill ? Math.floor(chosen.skillCharge / chosen.hero.skill.cooldown * 20) : '';
+  const key = `${s.lives}-${s.qi}-${s.wave}-${s.status}-${s.kills}-${ui.selectedTower}-${ui.paused}-${cd}-${charge}`;
   if (key === lastHud && !force) return;
   lastHud = key;
   document.querySelector('#hud-lives').textContent = s.lives;
@@ -253,8 +329,10 @@ function updateHud(force = false) {
   document.querySelector('#command-panel').innerHTML = renderCommandPanel();
 }
 
-function resetBattle(stage = ui.stage) {
-  ui.stage = stage; ui.selectedTower = null; ui.paused = false; ui.reward = null;
+function resetBattle(stage = ui.stage, mode = ui.mode) {
+  if (flushDaily()) persist();
+  dailySent = { kills: 0, skills: 0, upgrades: 0, bosses: 0 };
+  ui.stage = stage; ui.mode = mode === 'challenge' && challengeOpen(profile, stage) ? 'challenge' : 'normal'; ui.selectedTower = null; ui.paused = false; ui.reward = null;
   enemyEffects = emptyEnemyEffects(); defeatedEnemies = []; victoryPending = false;
   engine = makeEngine(); engine.setSpeed(ui.speed); render();
 }
@@ -267,12 +345,47 @@ function showModal(content, className = '') {
 
 function closeModal() { modalRoot.innerHTML = ''; document.body.classList.remove('modal-open'); }
 
-function showStages() {
-  showModal(`<span class="eyebrow">${WORLD.name.toUpperCase()}</span><h2 id="modal-title">Escolha seu caminho.</h2><p class="modal-description">Cinco ondas. Um território a proteger.</p><div class="stage-list">${STAGES.map(stage => { const unlocked = stage.id <= profile.unlockedStage; const completed = profile.completedStages.includes(stage.id); return `<button class="stage-option ${ui.stage === stage.id ? 'current' : ''}" data-action="choose-stage" data-id="${stage.id}" ${unlocked ? '' : 'disabled'}><span class="stage-number">${unlocked ? String(stage.id).padStart(2, '0') : icon('lock', 20)}</span><span><strong>${stage.name}</strong><small>${stage.difficulty} · ${completed ? 'Concluída' : stage.id === 1 ? 'Sua primeira jornada' : 'Novos desafios'}</small></span><span class="stage-reward">${completed ? icon('check', 19) : `${icon('gem', 14)} ${stage.reward}`}</span></button>`; }).join('')}</div><p class="rail-note">Trocar de fase reinicia a partida atual.</p>`);
+// Three stars, lit up to the best mark of a stage.
+function stageStarsRow(stars, size = 13) {
+  return `<span class="stage-stars" aria-label="${stars} de 3 estrelas">${[1, 2, 3].map(i => `<i class="${i <= stars ? 'lit' : ''}">${icon('star', size)}</i>`).join('')}</span>`;
+}
+
+const challengeRule = () => `os inimigos têm ${Math.round((BALANCE.challenge.hpMultiplier - 1) * 100)}% mais vida e você tem só ${BALANCE.challenge.lives} vidas`;
+
+// One tab per world; a world opens when its first stage is unlocked.
+function worldTabs(selected) {
+  return `<div class="world-tabs" role="tablist">${WORLDS.map(world => {
+    const open = world.firstStage <= profile.unlockedStage;
+    return `<button class="world-tab ${world.id === selected.id ? 'active' : ''}" role="tab" aria-selected="${world.id === selected.id}" data-action="stage-world" data-id="${world.id}" ${open ? '' : `disabled title="Vença a fase ${world.firstStage - 1} para chegar a este mundo"`}>${open ? '' : icon('lock', 12)}<span>${escapeText(world.name)}</span><small>${worldDone(world)}/${worldSize(world)}</small></button>`;
+  }).join('')}</div>`;
+}
+
+function showStages(worldId = worldOfStage(ui.stage).id) {
+  const world = WORLDS.find(candidate => candidate.id === worldId) || WORLDS[0];
+  showModal(`<span class="eyebrow">A JORNADA DA ASCENSÃO</span>${worldTabs(world)}<h2 id="modal-title">Escolha seu caminho.</h2><p class="modal-description">${escapeText(world.motto)} Vença sem perder vidas para conquistar 3 estrelas e abrir o desafio da fase.</p><div class="stage-total">${icon('star', 14)} <b>${daoStars(profile)}</b> estrelas do Dao conquistadas</div><div class="stage-list">${STAGES.filter(stage => stage.world === world.id).map(stage => {
+    const unlocked = stage.id <= profile.unlockedStage;
+    const completed = profile.completedStages.includes(stage.id);
+    const stars = profile.stageStars?.[stage.id] || 0;
+    const open = challengeOpen(profile, stage.id);
+    const won = profile.challenges?.includes(stage.id);
+    const challenge = completed ? `<button class="challenge-option ${won ? 'won' : ''} ${ui.stage === stage.id && ui.mode === 'challenge' ? 'current' : ''}" data-action="choose-challenge" data-id="${stage.id}" ${open ? '' : 'disabled'} title="${open ? `No desafio, ${challengeRule()}.` : 'Conquiste 3 estrelas para abrir o desafio'}">${icon(open ? 'swords' : 'lock', 15)}<span>Desafio</span><small>${won ? 'Vencido' : open ? `${icon('gem', 10)} ${challengeReward(stage.id)}` : '3 estrelas'}</small></button>` : '';
+    return `<div class="stage-row"><button class="stage-option ${ui.stage === stage.id && ui.mode === 'normal' ? 'current' : ''}" data-action="choose-stage" data-id="${stage.id}" ${unlocked ? '' : 'disabled'}><span class="stage-number">${unlocked ? String(stage.id).padStart(2, '0') : icon('lock', 20)}</span><span><strong>${stage.name}</strong><small>${stage.difficulty} · ${completed ? 'Concluída' : stage.id === 1 ? 'Sua primeira jornada' : 'Novos desafios'}</small>${completed ? stageStarsRow(stars, 11) : ''}</span><span class="stage-reward">${completed ? icon('check', 19) : `${icon('gem', 14)} ${stage.reward}`}</span></button>${challenge}</div>`;
+  }).join('')}</div><p class="rail-note">Trocar de fase reinicia a partida atual. No desafio, ${challengeRule()}.</p>`);
+}
+
+// The stars (or the challenge) of the victory just won.
+function victoryStarsBlock() {
+  const r = ui.reward;
+  if (!r) return '';
+  if (r.challenge) return `<div class="victory-stars challenge"><span class="challenge-tag">DESAFIO VENCIDO</span><small>${r.firstChallenge ? 'Primeira vitória no desafio: +1 estrela do Dao.' : 'Desafio vencido de novo.'}</small></div>`;
+  const hint = r.stars === 3 ? 'Defesa perfeita: o desafio desta fase está aberto.'
+    : r.stars === 2 ? 'Vença sem perder vidas para conquistar 3 estrelas.'
+    : `Perca no máximo ${Math.floor(engine.state.maxLives * PROGRESSION.twoStarsMaxLossPercent / 100)} vidas para conquistar 2 estrelas.`;
+  return `<div class="victory-stars">${stageStarsRow(r.stars, 26)}<small>${r.newRecord && !r.firstClear ? 'Nova melhor marca! ' : ''}${hint}</small></div>`;
 }
 
 function showResult(victory) {
-  showModal(`<div class="result-icon ${victory ? '' : 'defeat'}">${icon(victory ? 'trophy' : 'shield', 38)}</div><span class="eyebrow">${victory ? 'O DAO RECONHECE SUA FORÇA' : 'TODA QUEDA ENSINA'}</span><h2 id="modal-title">${victory ? 'O território está a salvo.' : 'Seu caminho continua.'}</h2><p class="modal-description">${victory ? `${escapeText(stageInfo().name)} foi protegido e ${escapeText(stageInfo().enemies.boss)} caiu. Seus cultivadores conquistaram uma nova vitória.` : 'Os invasores passaram pela sua defesa. Repense as posições e cultive seu poder entre as ondas.'}</p><div class="result-stats"><span><b>${engine.state.kills}</b>inimigos derrotados</span><span><b>${engine.state.wave}/${engine.state.totalWaves}</b>ondas enfrentadas</span></div>${victory ? `<div class="victory-reward">${icon('gem', 26)}<div><b>+${ui.reward?.reward || 0} Cristais do Dao</b><span>${ui.reward?.firstClear ? 'Recompensa de primeira conclusão' : 'Recompensa de nova conclusão'}</span></div></div><button class="primary-button" data-action="result-next">${ui.stage < STAGES.length ? 'Seguir para a próxima fase' : 'Escolher uma nova jornada'} ${icon('arrowRight', 16)}</button><button class="text-button" data-action="result-recruit">Visitar o pavilhão de recrutamento</button>` : `<button class="primary-button" data-action="retry">${icon('refresh', 16)} Tentar novamente</button>`}`, 'result-modal');
+  showModal(`<div class="result-icon ${victory ? '' : 'defeat'}">${icon(victory ? 'trophy' : 'shield', 38)}</div><span class="eyebrow">${victory ? 'O DAO RECONHECE SUA FORÇA' : 'TODA QUEDA ENSINA'}</span><h2 id="modal-title">${victory ? 'O território está a salvo.' : 'Seu caminho continua.'}</h2><p class="modal-description">${victory ? `${escapeText(stageInfo().name)} foi protegido e ${escapeText(stageInfo().enemies.boss)} caiu. Seus cultivadores conquistaram uma nova vitória.` : 'Os invasores passaram pela sua defesa. Repense as posições e cultive seu poder entre as ondas.'}</p>${victory ? victoryStarsBlock() : ''}<div class="result-stats"><span><b>${engine.state.kills}</b>inimigos derrotados</span><span><b>${engine.state.wave}/${engine.state.totalWaves}</b>ondas enfrentadas</span></div>${victory ? `<div class="victory-reward">${icon('gem', 26)}<div><b>+${ui.reward?.reward || 0} Cristais do Dao</b><span>${ui.reward?.firstChallenge ? 'Recompensa do primeiro desafio vencido' : ui.reward?.firstClear ? 'Recompensa de primeira conclusão' : 'Recompensa de nova conclusão'}</span></div></div><button class="primary-button" data-action="result-next">${ui.stage < STAGES.length ? 'Seguir para a próxima fase' : 'Escolher uma nova jornada'} ${icon('arrowRight', 16)}</button><button class="text-button" data-action="result-recruit">Visitar o pavilhão de recrutamento</button>` : `<button class="primary-button" data-action="retry">${icon('refresh', 16)} Tentar novamente</button>`}`, 'result-modal');
 }
 
 function starPanel(id, owned) {
@@ -296,7 +409,7 @@ function showHero(id) {
   const base = heroById(id); if (!base) return;
   const r = rarityOf(base); const owned = profile.owned.includes(id);
   const hero = owned ? fighter(id) : base;
-  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p>${starPanel(id, owned)}<div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div>${!owned ? `<button class="primary-button" data-action="result-recruit">Visitar recrutamento ${icon('arrowRight', 16)}</button>`
+  showModal(`<div class="hero-detail-art" style="--hero-color:${r.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${r.color}">${r.name} · ${hero.title}</span><h2 id="modal-title">${hero.name}</h2><p class="modal-description">${hero.description}</p>${heroAbilities(hero)}${starPanel(id, owned)}<div class="hero-detail-stats"><span>${icon('sword', 18)}<b>${hero.damage}</b>Dano</span><span>${icon('shield', 18)}<b>${hero.range}</b>Alcance</span><span>${icon('speed', 18)}<b>${hero.attackSpeed.toFixed(1)}</b>Ataques/s</span><span>${icon('qi', 18)}<b>${hero.cost}</b>Qi inicial</span></div>${!owned ? `<button class="primary-button" data-action="result-recruit">Visitar recrutamento ${icon('arrowRight', 16)}</button>`
     : profile.squad.includes(id) ? `<button class="primary-button" data-action="use-hero" data-id="${id}">Selecionar para a defesa ${icon('arrowRight', 16)}</button>`
     : `<button class="primary-button" data-action="squad-toggle" data-id="${id}">${icon('plus', 16)} Colocar no esquadrão</button>`}`, 'hero-modal');
 }
@@ -305,17 +418,50 @@ function doSummon(count) {
   const result = summon(profile, count);
   if (!result.ok) return toast(result.reason || 'Cristais insuficientes. Conclua fases para ganhar mais.');
   const before = new Set(profile.owned);
-  profile = result.profile; engine.setHeroes(squadHeroes()); persist(); sound('victory'); render();
-  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span></div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram no esquadrão se houver vaga. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
+  profile = recordDaily(result.profile, today(), { summons: count }); engine.setHeroes(squadHeroes()); persist(); sound('victory'); render();
+  showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span>${result.guaranteed?.[i] ? '<span class="pity-badge">GARANTIDO</span>' : ''}</div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram no esquadrão se houver vaga. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
 }
 
 function activate(action, el) {
   sound();
-  if (action === 'navigate') { const next = el.dataset.view; if (ui.view === 'defense' && next !== 'defense' && inBattle()) ui.paused = true; ui.view = next; render(); }
+  if (action === 'navigate') {
+    const next = el.dataset.view;
+    if (ui.view === 'defense' && next !== 'defense' && inBattle()) ui.paused = true;
+    // The missions page shows what the match in progress has already done.
+    if (next === 'cultivation' && flushDaily()) persist();
+    ui.view = next; render();
+  }
+  if (action === 'talent-up') {
+    const result = raiseTalent(profile, el.dataset.id);
+    if (!result.ok) return toast(result.reason);
+    profile = result.profile; persist(); sound('victory'); render();
+    toast(`${TALENTS.find(t => t.id === el.dataset.id).name} chegou ao nível ${result.level}. Vale a partir da próxima partida.`);
+  }
+  if (action === 'talent-reset') {
+    const result = resetTalents(profile);
+    if (!result.refund) return toast('Nenhuma estrela foi gasta em talentos ainda.');
+    profile = result.profile; persist(); render();
+    toast(`${result.refund} estrelas voltaram para você. Distribua de novo como quiser.`);
+  }
+  if (action === 'claim-mission') {
+    const result = claimDaily(profile, today(), el.dataset.id);
+    if (!result.ok) return toast(result.reason);
+    profile = result.profile; persist(); sound('victory'); render();
+    toast(result.bonus ? `+${result.reward} cristais, com o bônus de todas as missões do dia!` : `+${result.reward} cristais.`);
+  }
   if (action === 'sound') { ui.sound = !ui.sound; render(); if (ui.sound) sound(); }
   if (action === 'stages') showStages();
-  if (action === 'choose-stage') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id)); }
+  if (action === 'stage-world') showStages(Number(el.dataset.id));
+  if (action === 'choose-stage') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id), 'normal'); }
+  if (action === 'choose-challenge') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id), 'challenge'); }
   if (action === 'select-hero') {
+    // A hero on the map with its skill charged casts it straight from the card.
+    const fieldTower = engine.state.towers.find(tower => tower.hero.id === el.dataset.id);
+    if (fieldTower && engine.skillReady(fieldTower) && engine.state.status === 'running') {
+      const cast = engine.useSkill(fieldTower.id);
+      if (!cast.ok) toast(cast.reason); else sound('upgrade');
+      renderDynamic(); return;
+    }
     ui.selectedHero = el.dataset.id;
     // A hero already on the map opens its tower (details, upgrade, dismiss) instead of waiting for a platform.
     ui.selectedTower = engine.state.towers.find(tower => tower.hero.id === el.dataset.id)?.id ?? null;
@@ -351,12 +497,17 @@ function activate(action, el) {
     }
     updateHud(true); renderDynamic();
   }
+  if (action === 'use-skill') {
+    const cast = engine.useSkill(ui.selectedTower);
+    if (!cast.ok) toast(cast.reason); else sound('upgrade');
+    updateHud(true); renderDynamic();
+  }
   if (action === 'upgrade') { const result = engine.upgradeTower(ui.selectedTower); if (!result.ok) toast(result.reason || 'Qi insuficiente.'); updateHud(true); renderDynamic(); }
   if (action === 'sell') { const result = engine.sellTower(ui.selectedTower); if (result?.ok === false) toast(result.reason); ui.selectedTower = null; updateHud(true); renderDynamic(); }
   if (action === 'speed') { ui.speed = ui.speed === 1 ? 2 : 1; engine.setSpeed(ui.speed); document.querySelector('#speed-text')?.replaceChildren(`${ui.speed}×`); document.querySelector('.speed-button')?.classList.toggle('fast', ui.speed === 2); }
   if (action === 'wave') {
     if (engine.state.status === 'running') ui.paused = !ui.paused;
-    else if (engine.state.status === 'victory') { ui.stage < STAGES.length ? resetBattle(ui.stage + 1) : showStages(); }
+    else if (engine.state.status === 'victory') { ui.stage < STAGES.length ? resetBattle(ui.stage + 1, 'normal') : showStages(); }
     else if (engine.state.status === 'defeat') resetBattle();
     else { const result = engine.startWave(); if (result?.ok === false) toast(result.reason || 'Posicione uma torre primeiro.'); ui.paused = false; }
     updateHud(true);
@@ -365,7 +516,7 @@ function activate(action, el) {
   if (action === 'restart') showModal(`<span class="eyebrow">UM NOVO COMEÇO</span><h2 id="modal-title">Recomeçar esta fase?</h2><p class="modal-description">As torres e o Qi desta partida serão reiniciados. Sua coleção e seus cristais continuam com você.</p><button class="primary-button" data-action="retry">${icon('refresh', 16)} Recomeçar fase</button><button class="text-button" data-action="close-modal">Continuar jogando</button>`);
   if (action === 'retry') { closeModal(); resetBattle(); }
   if (action === 'close-modal') closeModal();
-  if (action === 'result-next') { closeModal(); if (ui.stage < STAGES.length) resetBattle(ui.stage + 1); else showStages(); }
+  if (action === 'result-next') { closeModal(); if (ui.stage < STAGES.length) resetBattle(ui.stage + 1, 'normal'); else showStages(); }
   if (action === 'result-recruit') { closeModal(); ui.view = 'recruit'; if (inBattle()) ui.paused = true; render(); }
   if (action === 'summon') doSummon(Number(el.dataset.count));
   if (action === 'filter') { ui.filter = el.dataset.filter; render(); }
@@ -409,6 +560,8 @@ function frame(now) {
     engine.update(dt);
     enemyEffects = advanceEnemyEffects(enemyEffects, engine.state.enemies, dt * engine.state.speed, defeatedEnemies);
     defeatedEnemies = [];
+    for (const effect of areaEffects) effect.age += dt * engine.state.speed;
+    areaEffects = areaEffects.filter(effect => effect.age < effect.life);
     if (victoryPending && !enemyEffects.deaths.length) { victoryPending = false; render(); showResult(true); }
   }
   if (now - lastPaint > 40 && ui.view === 'defense') { renderDynamic(); updateHud(); lastPaint = now; }

@@ -1,7 +1,9 @@
 // Balance check: how many times tougher the enemies could get before a careful player loses (the 'margin'),
 // for the Faxineiro alone and for real collections (unlucky 10th percentile, median, lucky 90th percentile) at every
-// stage. The collections come from 400 simulated players who spend every crystal on recruits and raise every star.
-// The player is a bot that spends Qi where it adds the most damage per Qi (placing or upgrading). Takes a few minutes.
+// stage of both worlds. The collections come from 400 simulated players who spend every crystal on recruits, raise
+// every star and spend their stars of the Dao on talents (two stars per stage, a typical first clear).
+// The player is a bot that spends Qi where it adds the most damage per Qi (placing or upgrading) and casts every
+// skill as soon as it is charged. Takes several minutes.
 //   npm run balanceamento            current numbers
 //   npm run balanceamento -- 1.2     the same with enemies 20% tougher (to try a change before making it)
 // Method and targets: docs/BALANCEAMENTO.md.
@@ -10,20 +12,19 @@ import path from 'node:path';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const extra = Number(process.argv[2] || 1);
 const load = f => import(pathToFileURL(path.join(repo, f)).href);
-const { GameEngine, pointOnPath } = await load('src/engine.js');
-const { HEROES, STAGES } = await load('src/data.js');
-const { createProfile, summon, raiseStar, grantVictory } = await load('src/profile.js');
+const { GameEngine, NO_MODIFIERS, pointOnPath } = await load('src/engine.js');
+const { HEROES, STAGES, TALENTS } = await load('src/data.js');
+const { createProfile, summon, raiseStar, grantVictory, raiseTalent, talentModifiers, freeStars } = await load('src/profile.js');
 const { withStars } = await load('src/stars.js');
 const byId = Object.fromEntries(HEROES.map(h => [h.id, h]));
-const eff = h => (h.damage * h.attackSpeed) / h.cost;
 const dpsOf = h => h.damage * h.attackSpeed;
 
 let K = 1;
 const orig = GameEngine.prototype.startWave;
 GameEngine.prototype.startWave = function () { const r = orig.call(this); if (r.ok) for (const e of this._spawnQueue) e.hp = Math.round(e.hp * K * extra); return r; };
 
-function play(stage, squad) {
-  const engine = new GameEngine({ stage, heroes: squad });
+function play(stage, squad, modifiers = NO_MODIFIERS) {
+  const engine = new GameEngine({ stage, heroes: squad, modifiers });
   const map = engine.map, samples = [];
   for (let d = 0; d < map.pathLength; d += 4) samples.push(pointOnPath(d, map));
   const cover = (pad, range) => samples.filter(p => Math.hypot(p.x - pad.x, p.y - pad.y) <= range).length / samples.length;
@@ -55,18 +56,32 @@ function play(stage, squad) {
   decide(); engine.startWave();
   for (let t = 0; (engine.state.status === 'running' || engine.state.status === 'preparing') && t < 900; t += 8 / 30) {
     for (let i = 0; i < 8; i++) engine.update(1 / 30);
+    // Skills go off as soon as they are charged.
+    for (const tower of [...engine.state.towers]) if (engine.state.status === 'running' && engine.skillReady(tower)) engine.useSkill(tower.id);
     decide();
   }
   return engine.state.status === 'victory';
 }
-function margin(stage, squad) {
-  K = 1; if (!play(stage, squad)) return 0;
+function margin(stage, squad, modifiers) {
+  K = 1; if (!play(stage, squad, modifiers)) return 0;
   let lo = 1, hi = 16;
-  for (let i = 0; i < 8; i++) { const mid = Math.sqrt(lo * hi); K = mid; if (play(stage, squad)) lo = mid; else hi = mid; }
+  for (let i = 0; i < 8; i++) { const mid = Math.sqrt(lo * hi); K = mid; if (play(stage, squad, modifiers)) lo = mid; else hi = mid; }
   return lo;
 }
 
-// Collections (fixed seed, so runs are comparable): spend every crystal, raise every star, squad = five best by damage per Qi.
+// Stars of the Dao go to the cheapest next talent level (damage first on ties).
+const talentOrder = ['furia', 'meditacao', 'reserva', 'economia', 'muralha'].filter(id => TALENTS.some(t => t.id === id));
+function spendStars(profile) {
+  for (let changed = true; changed;) {
+    changed = false;
+    const next = [...talentOrder].sort((a, b) => profile.talents[a] - profile.talents[b])[0];
+    const result = raiseTalent(profile, next);
+    if (result.ok) { profile = result.profile; changed = true; }
+  }
+  return profile;
+}
+
+// Collections (fixed seed, so runs are comparable): spend every crystal, raise every star, squad = five strongest heroes.
 let seed = 1;
 const rng = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
 const players = 400, at = {};
@@ -75,18 +90,33 @@ for (let p = 0; p < players; p++) {
   for (const stage of STAGES) {
     while (profile.crystals >= 100) profile = summon(profile, profile.crystals >= 900 ? 10 : 1, rng).profile;
     for (let changed = true; changed;) { changed = false; for (const id of profile.owned) { const r = raiseStar(profile, id); if (r.ok) { profile = r.profile; changed = true; } } }
+    profile = spendStars(profile);
     // With one platform per hero, the squad is the five strongest heroes (damage per second).
     const squad = profile.owned.map(id => withStars(byId[id], profile.stars[id] || 0)).sort((a, b) => dpsOf(b) - dpsOf(a)).slice(0, 5);
     // Players are ranked by the total strength of their squad.
-    (at[stage.id] ??= []).push({ squad, best: squad.reduce((total, h) => total + dpsOf(h), 0) });
-    profile = grantVictory(profile, stage.id).profile;
+    (at[stage.id] ??= []).push({ squad, best: squad.reduce((total, h) => total + dpsOf(h), 0), modifiers: talentModifiers(profile) });
+    // A typical first clear: two stars (a few lives lost).
+    profile = grantVictory(profile, stage.id, { lives: 17, maxLives: 20 }).profile;
   }
 }
 console.log(`fator de vida extra: ${extra}`);
-console.log('fase |  Faxineiro ★0 | azarado (p10) | mediano | sortudo (p90)');
+console.log('fase |  Faxineiro ★0 | azarado (p10) | mediano | sortudo (p90) | mediano sem talentos');
 for (const s of STAGES) {
   const list = at[s.id].sort((a, b) => a.best - b.best);
-  const pick = q => list[Math.floor(q * (list.length - 1))].squad;
-  const row = [margin(s.id, [withStars(byId.faxineiro, 0)]), margin(s.id, pick(.1)), margin(s.id, pick(.5)), margin(s.id, pick(.9))];
+  const pick = q => list[Math.floor(q * (list.length - 1))];
+  const median = pick(.5);
+  const row = [
+    margin(s.id, [withStars(byId.faxineiro, 0)], NO_MODIFIERS),
+    margin(s.id, pick(.1).squad, pick(.1).modifiers),
+    margin(s.id, median.squad, median.modifiers),
+    margin(s.id, pick(.9).squad, pick(.9).modifiers),
+    margin(s.id, median.squad, NO_MODIFIERS),
+  ];
   console.log(`${String(s.id).padStart(4)} | ${row.map(m => m.toFixed(2).padStart(12)).join(' | ')}`);
+}
+// The median squad of the last stage of each world, for the progression tests.
+for (const id of [12, 24]) {
+  const list = at[id].sort((a, b) => a.best - b.best);
+  const median = list[Math.floor(.5 * (list.length - 1))];
+  console.log(`esquadrão mediano na fase ${id}: ${median.squad.map(h => `${h.id} ${h.damage}`).join(', ')}`);
 }

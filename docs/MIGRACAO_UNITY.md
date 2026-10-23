@@ -1,6 +1,6 @@
 # DTD → Unity: plano de migração
 
-O jogo web continua sendo a referência: ele já tem as 12 fases, a arte chibi, as estrelas, o esquadrão e as ondas
+O jogo web continua sendo a referência: ele já tem as 24 fases (dois mundos), a arte chibi, as estrelas, o esquadrão e as ondas
 automáticas. A versão Unity reescreve tudo em C#, com **as mesmas regras e os mesmos números**, e ganha o que o
 Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador e celular.
 
@@ -24,9 +24,11 @@ Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador 
   Para celular, falta instalar o módulo **Android Build Support** pelo Hub.
 - **Pacote de migração**: `npm run unity` gera a pasta `unity-export/` (não vai para o git, porque é gerada):
   - `dados/herois.json` e `dados/raridades.json`: os 14 heróis e as 7 raridades.
-  - `dados/fases.json`: as 12 fases com nome, reino, chefe, inimigos, recompensa e o caminho e as 9 plataformas de cada cenário.
-  - `dados/regras.json`: todos os números e fórmulas (combate, ondas, torres, estrelas, recrutamento, esquadrão, progresso).
-  - `dados/casos-de-teste.json`: resultados do motor atual (caminhos, ondas, níveis das torres, estrelas e 4 partidas
+  - `dados/fases.json`: os mundos e as 24 fases com nome, reino, chefe, inimigos e suas habilidades, recompensa, cores do cenário
+    feito em código e o caminho e as 9 plataformas de cada cenário.
+  - `dados/regras.json`: todos os números e fórmulas (combate, elementos, habilidades dos inimigos, ondas, torres, estrelas,
+    recrutamento e garantia, esquadrão, progresso, estrelas das fases e desafio, talentos e missões do dia).
+  - `dados/casos-de-teste.json`: resultados do motor atual (caminhos, ondas, níveis das torres, estrelas e 5 partidas
     completas) para conferir, número por número, que a versão em C# joga igual.
   - `arte/`: heróis (512 px), inimigos (384 px), chefes (512 px) e cenários (2000 × 1200) em **PNG**, porque o Unity não importa WebP.
 - Os números do combate ficam todos num só lugar no jogo web (`BALANCE`, em `src/engine.js`). Mudou o balanceamento?
@@ -104,7 +106,7 @@ Cada etapa termina com algo que dá para jogar ou conferir.
 2. **Núcleo em C#**: `GameSimulation` e as regras, com os testes EditMode passando em todos os `casos-de-teste.json`.
 3. **Batalha jogável (fase 1)**: cenário, plataformas clicáveis, torres chibi, inimigos andando com barra de vida,
    projéteis, HUD (vidas, Qi, contagem), pausa, 2× e ondas automáticas.
-4. **As 12 fases**: escolha de fase, vitória e derrota, recompensas, desbloqueio em sequência.
+4. **As 24 fases**: escolha de fase por mundo, vitória e derrota, recompensas, estrelas, desafio, desbloqueio em sequência.
 5. **Telas**: Esquadrão, Recrutamento (com a revelação dos heróis), Meus heróis e a ficha com estrelas.
 6. **Salvamento, som e build**: tela no formato da plataforma escolhida, build WebGL (pode ir para o GitHub Pages) ou `.exe`.
 7. **Polimento**: poses e animações dos chibis, efeitos das técnicas, partículas, transições. Os inimigos serão

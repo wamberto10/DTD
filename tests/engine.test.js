@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BALANCE, GameEngine, MAP, WAVE_BREAK_SECONDS, mapForStage, pointOnPath } from '../src/engine.js';
-import { HEROES, STAGES } from '../src/data.js';
-import { createProfile, grantVictory } from '../src/profile.js';
+import { HEROES, STAGES, WORLDS, TALENTS } from '../src/data.js';
+import { createProfile, grantVictory, raiseTalent, talentModifiers } from '../src/profile.js';
 import { withStars } from '../src/stars.js';
 
 const cleaner = HEROES.find(hero => hero.id === 'faxineiro');
@@ -104,10 +104,11 @@ test('enemy kills award Qi and first wave completes with basic towers', () => {
 
 // A careful but simple player. Heroes go out in order of damage per Qi, each on its own platform (the free one that
 // sees the most road for that hero): three towers first, then the next hero whenever every tower reached level 3,
-// otherwise upgrade the weakest tower. Qi is spent before each wave and once a second during it, as it comes in.
-function playStage(stageId, squad, onEvent = () => {}) {
+// otherwise upgrade the weakest tower. Qi is spent before each wave and once a second during it, as it comes in,
+// and each skill is cast in that same second check once it is charged.
+function playStage(stageId, squad, onEvent = () => {}, modifiers = undefined) {
   const order = [...squad].sort((a, b) => b.damage * b.attackSpeed / b.cost - a.damage * a.attackSpeed / a.cost);
-  const game = new GameEngine({ stage: stageId, heroes: squad, onEvent: event => onEvent(event) });
+  const game = new GameEngine({ stage: stageId, heroes: squad, onEvent: event => onEvent(event), ...(modifiers ? { modifiers } : {}) });
   const seen = new Map();
   const road = (pad, range) => seen.get(`${pad.id}:${range}`) ?? seen.set(`${pad.id}:${range}`, roadInRange(game.map, pad, range)).get(`${pad.id}:${range}`);
   const spend = () => {
@@ -129,7 +130,10 @@ function playStage(stageId, squad, onEvent = () => {}) {
     assert.equal(game.startWave().ok, true);
     for (let frame = 1; frame <= 180 * 30 && game.state.status === 'running'; frame++) {
       game.update(1 / 30);
-      if (frame % 30 === 0 && game.state.status === 'running') spend();
+      if (frame % 30 === 0 && game.state.status === 'running') {
+        spend();
+        for (const tower of [...game.state.towers]) if (game.state.status === 'running' && game.skillReady(tower)) game.useSkill(tower.id);
+      }
     }
     assert.notEqual(game.state.status, 'running', 'The wave must finish within the simulation budget.');
   }
@@ -175,24 +179,50 @@ test('the first recruits carry the first six stages without losing lives', () =>
     const game = playStage(stage.id, squad, event => events.push(event));
     assert.equal(game.state.status, 'victory', `The first recruits must clear stage ${stage.id}.`);
     assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives with three heroes.`);
-    assert.equal(game.state.kills, 55);
+    // 55 enemies in five waves, plus the minions of bosses that summon.
+    assert.ok(game.state.kills >= 55);
     assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
   }
 });
 
-test('the collection a typical player has by the end of the world clears every stage', () => {
-  // The median player after spending every crystal on recruits and raising every star (docs/BALANCEAMENTO.md).
-  const squad = [['long-chen', 0], ['shen-lei', 2], ['mo-yan', 3], ['han-feng', 5], ['faxineiro', 8]]
-    .map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+// The talents of a typical player who reached a stage: two stars per stage cleared, spent on the cheapest next level.
+function typicalTalents(stagesCleared) {
   let profile = createProfile();
-  for (const stage of STAGES) {
-    const game = playStage(stage.id, squad);
+  for (let id = 1; id <= stagesCleared; id++) profile = grantVictory(profile, id, { lives: 17, maxLives: 20 }).profile;
+  for (let changed = true; changed;) {
+    changed = false;
+    const next = TALENTS.map(t => t.id).sort((a, b) => profile.talents[a] - profile.talents[b])[0];
+    const result = raiseTalent(profile, next);
+    if (result.ok) { profile = result.profile; changed = true; }
+  }
+  return talentModifiers(profile);
+}
+
+test('the collection a typical player has by the end of the first world clears all of it', () => {
+  // The median player at stage 12 after spending every crystal on recruits and raising every star (npm run balanceamento).
+  const squad = [['long-chen', 0], ['bai-ling', 0], ['qing-lian', 0], ['mo-yan', 3], ['su-lan', 6]]
+    .map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  const world = WORLDS[0];
+  let profile = createProfile();
+  for (const stage of STAGES.filter(item => item.world === world.id)) {
+    const game = playStage(stage.id, squad, () => {}, typicalTalents(stage.id - 1));
     assert.equal(game.state.status, 'victory', `A typical collection must clear stage ${stage.id}.`);
     assert.ok(game.state.lives >= 10, `Stage ${stage.id} should leave a typical collection with spare lives.`);
     profile = grantVictory(profile, stage.id).profile;
   }
-  assert.equal(profile.unlockedStage, STAGES.length);
-  assert.equal(profile.crystals, 300 + STAGES.reduce((total, stage) => total + stage.reward, 0));
+  assert.equal(profile.unlockedStage, world.lastStage + 1, 'The first world opens the second.');
+  assert.equal(profile.crystals, 300 + STAGES.filter(item => item.world === world.id).reduce((total, stage) => total + stage.reward, 0));
+});
+
+test('the collection a typical player has by the end of Tong Xuan clears the second world', () => {
+  // The median player at stage 24 (npm run balanceamento): more legendary and UR heroes, and the talents of the journey.
+  const squad = [['yan-tian', 0], ['wu-kong', 0], ['long-chen', 2], ['bai-ling', 0], ['qing-lian', 3]]
+    .map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  for (const stage of STAGES.filter(item => item.world === WORLDS[1].id)) {
+    const game = playStage(stage.id, squad, () => {}, typicalTalents(stage.id - 1));
+    assert.equal(game.state.status, 'victory', `A typical collection must clear stage ${stage.id}.`);
+    assert.ok(game.state.lives >= 10, `Stage ${stage.id} should leave a typical collection with spare lives.`);
+  }
 });
 
 test('every stage has nine platforms off the road and a road that crosses the whole map', () => {
