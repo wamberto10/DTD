@@ -107,7 +107,8 @@ Cada etapa termina com algo que dá para jogar ou conferir.
 4. **As 12 fases**: escolha de fase, vitória e derrota, recompensas, desbloqueio em sequência.
 5. **Telas**: Esquadrão, Recrutamento (com a revelação dos heróis), Meus heróis e a ficha com estrelas.
 6. **Salvamento, som e build**: tela no formato da plataforma escolhida, build WebGL (pode ir para o GitHub Pages) ou `.exe`.
-7. **Polimento**: poses e animações dos chibis, efeitos das técnicas, partículas, transições.
+7. **Polimento**: poses e animações dos chibis, efeitos das técnicas, partículas, transições. Os inimigos serão
+   animados por peças (esqueleto): o guia das imagens está em `docs/ANIMACAO_INIMIGOS.md`, com os moldes em `docs/moldes/`.
 
 ## Atenção
 
