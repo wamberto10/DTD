@@ -1,5 +1,6 @@
 // Small sprites use a two-pixel grid so movement never blurs their contours.
 import { enemyArt } from './chibi-art.js';
+import { enemyRig, renderRigEnemy } from './enemy-rig.js';
 
 const rect = (x, y, width, height, fill, extra = '') =>
   `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" ${extra}/>`;
@@ -7,7 +8,7 @@ const rect = (x, y, width, height, fill, extra = '') =>
 // On-map height of each painted enemy kind, in battle units.
 const ART_HEIGHT = { normal: 50, fast: 46, brute: 62, boss: 92 };
 
-function renderPaintedEnemy(enemy, art) {
+function renderPaintedEnemy(enemy, art, showHealth) {
   const height = ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal;
   const width = Math.round(height * art.w / art.h);
   const x = Math.round(enemy.x), feet = Math.round(enemy.y + 12), top = feet - height;
@@ -19,14 +20,11 @@ function renderPaintedEnemy(enemy, art) {
   return `<g class="enemy painted-enemy" data-kind="${enemy.kind}">
     <ellipse cx="${x}" cy="${feet - 2}" rx="${Math.round(width * 0.3)}" ry="5" fill="#081210" opacity=".38"/>
     <image href="${art.url}" x="${x - Math.round(width / 2)}" y="${top}" width="${width}" height="${height}"${flip}/>
-    ${rect(barX - 1, top - 9, barWidth + 2, 5, '#1b2631')}
-    ${rect(barX, top - 8, health, 3, enemy.kind === 'boss' ? '#e7a18a' : '#c4d48d')}
+    ${showHealth ? rect(barX - 1, top - 9, barWidth + 2, 5, '#1b2631') + rect(barX, top - 8, health, 3, enemy.kind === 'boss' ? '#e7a18a' : '#c4d48d') : ''}
   </g>`;
 }
 
-export function renderEnemy(enemy, stage) {
-  const art = stage ? enemyArt(stage, enemy.kind) : null;
-  if (art) return renderPaintedEnemy(enemy, art);
+function renderPixelEnemy(enemy, showHealth) {
   const boss = enemy.kind === 'boss';
   const brute = enemy.kind === 'brute';
   const fast = enemy.kind === 'fast';
@@ -63,9 +61,21 @@ export function renderEnemy(enemy, stage) {
   return `<g class="enemy pixel-enemy" data-kind="${enemy.kind}" transform="translate(${Math.round(enemy.x - width)},${Math.round(enemy.y - height * 2 + 10)})" shape-rendering="crispEdges">
     ${rect(2, height * 2 - 2, barWidth - 4, 4, '#182b2b', 'opacity=".5"')}
     <g transform="scale(2)">${sprite}</g>
-    ${rect(-1, -7, barWidth + 2, 5, '#1b2631')}
-    ${rect(0, -6, health, 3, boss ? '#e7a18a' : '#c4d48d')}
+    ${showHealth ? rect(-1, -7, barWidth + 2, 5, '#1b2631') + rect(0, -6, health, 3, boss ? '#e7a18a' : '#c4d48d') : ''}
   </g>`;
+}
+
+export function renderEnemy(enemy, stage, visual = {}) {
+  const rig = stage ? enemyRig(stage, enemy.kind) : null;
+  const art = !rig && stage ? enemyArt(stage, enemy.kind) : null;
+  const markup = rig ? renderRigEnemy(enemy, rig, ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal, !visual.dying)
+    : art ? renderPaintedEnemy(enemy, art, !visual.dying) : renderPixelEnemy(enemy, !visual.dying);
+  if (!visual.dying && !visual.hit) return markup;
+  const progress = Math.max(0, Math.min(1, visual.death || 0));
+  const opacity = visual.dying ? 1 - progress : .45;
+  const rotation = visual.dying ? 82 * Math.sin(progress * Math.PI / 2) * (enemy.facing < 0 ? -1 : 1) : 0;
+  const feet = Math.round(enemy.y + 12), x = Math.round(enemy.x);
+  return `<g class="enemy-visual ${visual.dying ? 'dying-enemy' : 'hit-enemy'}" opacity="${opacity.toFixed(3)}" transform="translate(${x} ${feet + progress * 5}) rotate(${rotation.toFixed(3)}) translate(${-x} ${-feet})">${markup}</g>`;
 }
 
 export function renderProjectile(projectile) {

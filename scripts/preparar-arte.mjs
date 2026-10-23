@@ -5,6 +5,7 @@ import { readdir, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import { loadEnemyRigs, prepareEnemyPieces } from './preparar-inimigos-pecas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const raw = path.join(root, 'arte', 'ia');
@@ -25,6 +26,8 @@ async function sprite(file, box, target) {
   return { w: info.width, h: info.height, kb: Math.round(data.length / 1024) };
 }
 
+// An invalid new PSD must leave the last complete generated art untouched.
+const enemyRigs = await loadEnemyRigs();
 await rm(out, { recursive: true, force: true });
 for (const dir of ['herois', 'inimigos', 'fases']) await mkdir(path.join(out, dir), { recursive: true });
 const manifest = { herois: {}, inimigos: {}, fases: {} };
@@ -68,3 +71,4 @@ export const ART = {
 };\n`;
 await writeFile(path.join(root, 'src', 'art-manifest.js'), source);
 console.log(`Arte pronta: ${Object.keys(manifest.herois).length} heróis, ${Object.values(manifest.inimigos).reduce((n, s) => n + Object.keys(s).length, 0)} inimigos e chefes, ${Object.keys(manifest.fases).length} cenários (${(total / 1024).toFixed(1)} MB).`);
+await prepareEnemyPieces(enemyRigs);

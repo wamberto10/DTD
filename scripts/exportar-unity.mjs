@@ -13,12 +13,15 @@ import { DEFAULT_MAP, hasPaintedMap, mapForStage, pointOnPath, stageKey } from '
 import { FIRST_TIER_COSTS, FRAGMENTS_PER_COPY, STARS_PER_TIER, STAR_BONUS, STAR_TIERS, nextStarCost, withStars } from '../src/stars.js';
 import { ART } from '../src/art-manifest.js';
 import { STORAGE_KEY, createProfile } from '../src/profile.js';
+import { prepareEnemyPieces } from './preparar-inimigos-pecas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'unity-export');
 const exists = file => access(file).then(() => true, () => false);
 const json = (file, data) => writeFile(path.join(out, 'dados', file), `${JSON.stringify(data, null, 2)}\n`);
 
+// Always read the current PSDs, including additions/removals; never reuse a stale JS import.
+const enemyRigs = await prepareEnemyPieces();
 await rm(out, { recursive: true, force: true });
 for (const dir of ['dados', 'arte/herois', 'arte/inimigos', 'arte/fases']) await mkdir(path.join(out, dir), { recursive: true });
 
@@ -159,6 +162,28 @@ for (const [key] of Object.entries(ART.fases)) {
   count++;
 }
 
+// Cut-out pieces keep their original canvas offsets/joints. Unity consumes cropped PNGs, never WebP.
+// The PNGs are reduced to 37.5 % (a 1024 canvas becomes 384, like the whole enemies) with the same lanczos filter:
+// on the map an enemy is about 45 px tall, and full-size pieces looked grainy or blurry there. Unity imports them at
+// 37.5 pixels per unit (DtdArtImportRules), so the manifest coordinates stay in drawing pixels.
+const UNITY_PART_SCALE = 0.375;
+const rigs = [];
+for (const rig of enemyRigs.rigs) {
+  const parts = [];
+  for (const part of rig.parts) {
+    const file = part.file.replace(/\.webp$/, '.png');
+    const target = path.join(out, file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await sharp(path.join(webp, part.file.slice('arte/'.length)))
+      .resize(Math.max(1, Math.round(part.w * UNITY_PART_SCALE)), Math.max(1, Math.round(part.h * UNITY_PART_SCALE)), { fit: 'fill', kernel: 'lanczos3' })
+      .png({ compressionLevel: 9 }).toFile(target);
+    parts.push({ ...part, file });
+    count++;
+  }
+  rigs.push({ ...rig, parts });
+}
+await json('animacoes-inimigos.json', { rigs });
+
 await writeFile(path.join(out, 'LEIA-ME.md'), `# Pacote do DTD para o Unity
 
 Gerado por \`npm run unity\` a partir do jogo web. Não edite à mão: rode o comando de novo.
@@ -168,6 +193,7 @@ Gerado por \`npm run unity\` a partir do jogo web. Não edite à mão: rode o co
 - \`dados/regras.json\`: todos os números e fórmulas (combate, ondas, torres, estrelas, recrutamento, esquadrão, progresso).
 - \`dados/casos-de-teste.json\`: resultados do motor atual para conferir a versão em C#.
 - \`arte/\`: heróis (512 px), inimigos (384 px), chefes (512 px) e cenários (2000 × 1200), em PNG.
+- \`dados/animacoes-inimigos.json\` e \`arte/inimigos-pecas/\`: peças PNG, posições e juntas dos PSDs validados; a imagem estática continua disponível como fallback.
 
 O plano completo está em \`docs/MIGRACAO_UNITY.md\`.
 `);

@@ -6,6 +6,7 @@ import { icon, portrait, renderTerrain } from './art.js';
 import { renderEnemy, renderProjectile, renderPad } from './pixel-units.js';
 import { hasPaintedMap } from './maps.js';
 import { enemyArt, heroArt } from './chibi-art.js';
+import { emptyEnemyEffects, advanceEnemyEffects, enemyHitEffect, enemyDeathProgress, disableEnemyRig } from './enemy-rig.js';
 
 const app = document.querySelector('#app');
 const modalRoot = document.querySelector('#modal-root');
@@ -19,6 +20,9 @@ let lastPaint = 0;
 let lastHud = '';
 let lastPadMarkup = '';
 let lastTowerMarkup = '';
+let enemyEffects = emptyEnemyEffects();
+let defeatedEnemies = [];
+let victoryPending = false;
 
 const heroById = id => HEROES.find(h => h.id === id);
 const rarityOf = hero => RARITIES.find(r => r.id === hero.rarity);
@@ -81,12 +85,13 @@ function toast(message) {
 }
 
 function onEngineEvent(event) {
-  if (event.type === 'kill') sound('kill');
+  if (event.type === 'kill') { defeatedEnemies.push({ ...event.enemy }); sound('kill'); }
   if (event.type === 'waveComplete' && engine.state.status === 'preparing') toast(`Onda ${engine.state.wave} concluída. A próxima começa em ${WAVE_BREAK_SECONDS} segundos.`);
   if (event.type === 'victory') {
     const result = grantVictory(profile, ui.stage);
     profile = result.profile; ui.reward = result; persist(); sound('victory');
-    setTimeout(() => { render(); showResult(true); }, 80);
+    // Let the last enemy finish falling, using the same pausable clock as every other effect.
+    victoryPending = true;
   }
   if (event.type === 'defeat') setTimeout(() => { render(); showResult(false); }, 80);
 }
@@ -210,7 +215,8 @@ function renderDynamic() {
     return `<g class="map-tower ${tower.id === ui.selectedTower ? 'chosen' : ''}" data-action="select-tower" data-id="${tower.id}" role="button" tabindex="0" aria-label="${tower.hero.name}, nível ${tower.level}"><ellipse cx="${tower.x}" cy="${tower.y + 3}" rx="19" ry="10" fill="${tower.hero.color}" opacity=".4"/><svg x="${tower.x - w / 2}" y="${tower.y + 6 - h}" width="${w}" height="${h}" viewBox="0 0 120 140">${portrait(tower.hero, 'tower').replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')}</svg><rect x="${tower.x - 13}" y="${tower.y + 10}" width="26" height="13" rx="0" fill="#182820" stroke="#c4cba6" stroke-width=".8"/><text x="${tower.x}" y="${tower.y + 20}" text-anchor="middle">${tower.level}</text><rect x="${tower.x - 25}" y="${tower.y + 6 - h}" width="50" height="${h + 19}" fill="transparent" pointer-events="all"/></g>`;
   }).join('');
   if (towerMarkup !== lastTowerMarkup) { document.querySelector('#tower-layer').innerHTML = towerMarkup; lastTowerMarkup = towerMarkup; }
-  document.querySelector('#enemy-layer').innerHTML = s.enemies.map(enemy => renderEnemy(enemy, ui.stage)).join('');
+  document.querySelector('#enemy-layer').innerHTML = enemyEffects.deaths.map(death => renderEnemy(death.enemy, ui.stage, { dying: true, death: enemyDeathProgress(enemyEffects, death) })).join('')
+    + s.enemies.map(enemy => renderEnemy(enemy, ui.stage, { hit: enemyHitEffect(enemyEffects, enemy) })).join('');
   document.querySelector('#projectile-layer').innerHTML = s.projectiles.map(renderProjectile).join('');
 }
 
@@ -243,6 +249,7 @@ function updateHud(force = false) {
 
 function resetBattle(stage = ui.stage) {
   ui.stage = stage; ui.selectedTower = null; ui.paused = false; ui.reward = null;
+  enemyEffects = emptyEnemyEffects(); defeatedEnemies = []; victoryPending = false;
   engine = makeEngine(); engine.setSpeed(ui.speed); render();
 }
 
@@ -368,10 +375,21 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Enter' && event.target.matches('[role="button"][data-action]')) activate(event.target.dataset.action, event.target);
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden && inBattle()) { ui.paused = true; updateHud(true); } });
+document.addEventListener('error', event => {
+  if (event.target.classList?.contains('enemy-rig-piece')) {
+    disableEnemyRig(event.target.getAttribute('data-stage'), event.target.getAttribute('data-kind'));
+    renderDynamic();
+  }
+}, true);
 
 function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.1); lastTime = now;
-  if (ui.view === 'defense' && !ui.paused && !modalRoot.children.length) engine.update(dt);
+  if (ui.view === 'defense' && !ui.paused && !modalRoot.children.length) {
+    engine.update(dt);
+    enemyEffects = advanceEnemyEffects(enemyEffects, engine.state.enemies, dt * engine.state.speed, defeatedEnemies);
+    defeatedEnemies = [];
+    if (victoryPending && !enemyEffects.deaths.length) { victoryPending = false; render(); showResult(true); }
+  }
   if (now - lastPaint > 40 && ui.view === 'defense') { renderDynamic(); updateHud(); lastPaint = now; }
   requestAnimationFrame(frame);
 }

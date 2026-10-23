@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "arte": "node scripts/preparar-arte.mjs",
+    "arte:pecas": "node scripts/preparar-inimigos-pecas.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "build:portable": "npm run build && node scripts/build-portable.mjs",
@@ -13,6 +14,7 @@
     "unity": "node scripts/exportar-unity.mjs"
   },
   "devDependencies": {
+    "ag-psd": "^31.0.3",
     "sharp": "^0.34.4",
     "vite": "7.1.7"
   },

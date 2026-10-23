@@ -1,0 +1,116 @@
+// Gerado por npm run arte:pecas. Não edite à mão.
+export const ENEMY_RIGS = {
+  "rigs": [
+    {
+      "stage": "f01",
+      "kind": "normal",
+      "body": "humanoide",
+      "size": 1024,
+      "center": 512,
+      "feet": 960,
+      "top": 114,
+      "stride": 32,
+      "parts": [
+        {
+          "name": "cabelo-tras",
+          "x": 162,
+          "y": 228,
+          "w": 357,
+          "h": 395,
+          "pivotX": 429,
+          "pivotY": 263,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/cabelo-tras.webp"
+        },
+        {
+          "name": "braco-tras",
+          "x": 390,
+          "y": 492,
+          "w": 104,
+          "h": 275,
+          "pivotX": 450,
+          "pivotY": 517,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/braco-tras.webp"
+        },
+        {
+          "name": "perna-tras",
+          "x": 437,
+          "y": 647,
+          "w": 137,
+          "h": 310,
+          "pivotX": 488,
+          "pivotY": 675,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/perna-tras.webp"
+        },
+        {
+          "name": "perna-frente",
+          "x": 499,
+          "y": 647,
+          "w": 144,
+          "h": 311,
+          "pivotX": 553,
+          "pivotY": 675,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/perna-frente.webp"
+        },
+        {
+          "name": "tronco",
+          "x": 474,
+          "y": 494,
+          "w": 115,
+          "h": 192,
+          "pivotX": 532,
+          "pivotY": 662,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/tronco.webp"
+        },
+        {
+          "name": "saia",
+          "x": 403,
+          "y": 643,
+          "w": 266,
+          "h": 205,
+          "pivotX": 543,
+          "pivotY": 662,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/saia.webp"
+        },
+        {
+          "name": "cabeca",
+          "x": 331,
+          "y": 114,
+          "w": 394,
+          "h": 407,
+          "pivotX": 533,
+          "pivotY": 497,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/cabeca.webp"
+        },
+        {
+          "name": "arma",
+          "x": 600,
+          "y": 648,
+          "w": 135,
+          "h": 307,
+          "pivotX": 622,
+          "pivotY": 676,
+          "parent": "braco-frente",
+          "file": "arte/inimigos-pecas/f01-normal/arma.webp"
+        },
+        {
+          "name": "braco-frente",
+          "x": 550,
+          "y": 492,
+          "w": 119,
+          "h": 276,
+          "pivotX": 596,
+          "pivotY": 517,
+          "parent": "",
+          "file": "arte/inimigos-pecas/f01-normal/braco-frente.webp"
+        }
+      ]
+    }
+  ]
+};

@@ -166,5 +166,39 @@ Peças: `cabelo-tras`, `braco-tras`, `perna-tras`, `perna-frente`, `tronco`, `sa
 ## Para quem mexe no código
 
 Os moldes e as animações de prévia são gerados por `node scripts/moldes-animacao.mjs`. As medidas das peças e os
-movimentos de prévia ficam nesse arquivo. O jogo Unity ainda não lê os PSDs: essa parte entra quando o primeiro
-inimigo estiver recortado, para ser testada com arte de verdade.
+movimentos de prévia ficam nesse arquivo.
+
+### Primeiro inimigo executado — 23/10/2026
+
+O **Servo Arrogante** já está montado em `arte/ia/inimigos-pecas/f01_comum_servo_arrogante.psd`: tela transparente
+1024 × 1024 e nove camadas na ordem acima. A imagem de montagem está na mesma pasta, com extensão `.png`.
+A prévia animada fica em `moldes/andar-servo-arrogante.gif`.
+
+A arte foi desenhada com a ferramenta integrada `imagegen`, usando o inimigo original como referência. As peças
+foram geradas inteiras, com a continuação das juntas; o script `scripts/montar-servo.mjs` apenas recorta, dimensiona
+e posiciona esses desenhos no PSD. As imagens de origem ficam em `arte/ia/inimigos-pecas/fontes/`, e os prompts
+usados estão em [ANIMACAO_SERVO_PROMPTS.md](ANIMACAO_SERVO_PROMPTS.md).
+
+O jogo web e o projeto irmão `DTD-Unity` agora usam peças exportadas do PSD. O arquivo PSD continua sendo a fonte
+editável; ele é convertido antes de entrar no jogo:
+
+```bash
+npm run arte:pecas
+npm run build:portable
+npm run unity
+```
+
+- `arte:pecas` valida nomes, ordem, tela, altura e linha dos pés; infere as juntas pela transparência e exporta
+  as peças WebP em `public/arte/inimigos-pecas/` e `src/enemy-rigs-manifest.js`. `npm run arte` também faz essa etapa.
+- `unity` inclui `dados/animacoes-inimigos.json` e as peças PNG em `unity-export/arte/inimigos-pecas/`, reduzidas a
+  37,5% com o mesmo filtro dos inimigos inteiros (no mapa o inimigo tem uns 45 px; em tamanho cheio as peças ficavam
+  granuladas). As posições e juntas do manifesto continuam em pixels do desenho. No projeto
+  Unity, use **DTD → Importar pacote do jogo web** para atualizar os dados e o banco de sprites.
+- A caminhada segue a distância percorrida, acompanhando pausa e velocidade. A arma acompanha o braço; dano e morte
+  têm efeitos visuais sem alterar o combate. Se não existir um recorte válido, permanece a imagem atual.
+- Os três tipos de PSD são reconhecidos pelo conversor. A integração web inicial usa humanoides; o Unity também
+  aceita os moldes quadrúpede e voador. Só o Servo foi produzido nesta primeira validação, conforme a orientação
+  de começar por um inimigo.
+
+As fontes em `arte/ia/` continuam ignoradas pelo Git, como as demais artes originais do projeto. Preserve os PSDs
+e as imagens de origem junto da sua cópia de trabalho.
