@@ -168,11 +168,24 @@ Peças: `cabelo-tras`, `braco-tras`, `perna-tras`, `perna-frente`, `tronco`, `sa
 Os moldes e as animações de prévia são gerados por `node scripts/moldes-animacao.mjs`. As medidas das peças e os
 movimentos de prévia ficam nesse arquivo.
 
-### Primeiro inimigo executado — 23/10/2026
+### Inimigos da fase 1 executados — 23/10/2026
 
 O **Servo Arrogante** já está montado em `arte/ia/inimigos-pecas/f01_comum_servo_arrogante.psd`: tela transparente
 1024 × 1024 e nove camadas na ordem acima. A imagem de montagem está na mesma pasta, com extensão `.png`.
-A prévia animada fica em `moldes/andar-servo-arrogante.gif`.
+A prévia animada fica em `moldes/andar-servo-arrogante.gif`. Os outros três personagens da fase também estão prontos:
+
+| Personagem | Fonte PSD | Camadas | Corpo |
+|---|---|---:|---|
+| Macaco Ladrão | `arte/ia/inimigos-pecas/f01_rapido_macaco_ladrao.psd` | 7 | quadrúpede |
+| Valentão dos Alojamentos | `arte/ia/inimigos-pecas/f01_forte_valentao_alojamentos.psd` | 8 | humanoide |
+| Discípulo Interno de Elite | `arte/ia/chefes-pecas/f01_chefe_discipulo_interno_elite.psd` | 9 | humanoide |
+
+Cada PSD tem uma prévia PNG na mesma pasta. As três animações usam o renderer real do jogo:
+
+![Macaco, Valentão e Discípulo de Elite andando](moldes/andar-restantes-fase1.gif)
+
+Os prompts completos e as referências estão em [Macaco](ANIMACAO_MACACO_PROMPTS.md),
+[Valentão](ANIMACAO_VALENTAO_PROMPTS.md) e [Chefe](ANIMACAO_CHEFE_PROMPTS.md).
 
 A arte foi desenhada com a ferramenta integrada `imagegen`, usando o inimigo original como referência. As peças
 foram geradas inteiras, com a continuação das juntas; o script `scripts/montar-servo.mjs` apenas recorta, dimensiona
@@ -196,9 +209,13 @@ npm run unity
   Unity, use **DTD → Importar pacote do jogo web** para atualizar os dados e o banco de sprites.
 - A caminhada segue a distância percorrida, acompanhando pausa e velocidade. A arma acompanha o braço; dano e morte
   têm efeitos visuais sem alterar o combate. Se não existir um recorte válido, permanece a imagem atual.
-- Os três tipos de PSD são reconhecidos pelo conversor. A integração web inicial usa humanoides; o Unity também
-  aceita os moldes quadrúpede e voador. Só o Servo foi produzido nesta primeira validação, conforme a orientação
-  de começar por um inimigo.
+- Os três tipos de PSD são reconhecidos pelo conversor. A web anima humanoides e quadrúpedes; o Unity também
+  aceita voadores. Todos os quatro inimigos da fase 1
+  usam as peças. A cauda gira pela base e a cabeça do quadrúpede prende pela parte de trás do pescoço.
+
+Para reproduzir as montagens com as fontes já salvas, use `node scripts/montar-macaco.mjs`,
+`node scripts/montar-valentao.mjs` ou `node scripts/montar-chefe.mjs`. Depois de `npm run arte:pecas`,
+`node scripts/previas-inimigos.mjs` atualiza os GIFs individuais e a prévia conjunta.
 
 As fontes em `arte/ia/` continuam ignoradas pelo Git, como as demais artes originais do projeto. Preserve os PSDs
 e as imagens de origem junto da sua cópia de trabalho.

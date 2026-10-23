@@ -24,9 +24,22 @@ export function alphaBounds(bitmap) {
 
 // The attachment is in the top cap of a hanging limb, and in the bottom neck of a head.
 // Work in original canvas coordinates, before trimming or resizing the layer.
-export function detectPivot(name, bitmap, x, y) {
+export function detectPivot(name, bitmap, x, y, body = 'humanoide') {
   const b = alphaBounds(bitmap);
-  const fromBottom = name === 'cabeca';
+  if (body === 'quadrupede' && name === 'cabeca') {
+    // A right-facing animal joins the body at the back of its neck, in the lower-left of the head.
+    // Its chin is the lowest point and must not be mistaken for the attachment, as on a humanoid.
+    let sx = 0, sy = 0, total = 0;
+    for (let row = b.top + Math.floor(b.height * .62); row < b.top + b.height; row++) {
+      for (let col = b.left; col < b.left + Math.ceil(b.width * .43); col++) {
+        const alpha = bitmap.data[(row * bitmap.width + col) * 4 + 3];
+        if (alpha < 32) continue;
+        sx += col * alpha; sy += row * alpha; total += alpha;
+      }
+    }
+    if (total) return { pivotX: Math.round(x + sx / total), pivotY: Math.round(y + sy / total) };
+  }
+  const fromBottom = name === 'cabeca' || name === 'cauda';
   const band = Math.max(4, Math.round(b.height * (fromBottom ? 0.09 : 0.12)));
   const start = fromBottom ? b.top + b.height - band : b.top;
   let sum = 0, weight = 0;
@@ -59,7 +72,7 @@ export async function loadEnemyPsd(file) {
     const x = layer.left ?? 0, y = layer.top ?? 0;
     if (x < 0 || y < 0 || x + layer.imageData.width > 1024 || y + layer.imageData.height > 1024) throw new Error(`Peça ${layer.name} fora da tela.`);
     const b = alphaBounds(layer.imageData);
-    return { name: layer.name, x, y, bitmap: layer.imageData, bounds: b, ...detectPivot(layer.name, layer.imageData, x, y),
+    return { name: layer.name, x, y, bitmap: layer.imageData, bounds: b, ...detectPivot(layer.name, layer.imageData, x, y, body),
       parent: layer.name === 'arma' ? 'braco-frente' : '' };
   });
   const feet = body === 'voador' ? 525 : 960;

@@ -96,7 +96,8 @@ npm run arte
 
 O comando gera as cópias e atualiza `src/art-manifest.js`. Um cenário novo também precisa do caminho e das nove plataformas traçados em `src/maps.js`; até lá, a fase usa o caminho padrão.
 
-O Servo Arrogante já usa animação por peças a partir de um PSD em `arte/ia/inimigos-pecas/`. `npm run arte:pecas`
+Os quatro inimigos da fase 1 já usam animação por peças a partir de PSDs em `arte/ia/inimigos-pecas/` e
+`arte/ia/chefes-pecas/`: Servo, Macaco, Valentão e Discípulo de Elite. `npm run arte:pecas`
 atualiza só esses recortes; `npm run arte` também os inclui. A versão portátil incorpora todas as peças. O guia,
 as regras dos PSDs e a prévia estão em [docs/ANIMACAO_INIMIGOS.md](docs/ANIMACAO_INIMIGOS.md).
 

@@ -8,6 +8,7 @@ import {
 } from '../src/enemy-rig.js';
 
 const names = ['cabelo-tras', 'braco-tras', 'perna-tras', 'perna-frente', 'tronco', 'saia', 'cabeca', 'arma', 'braco-frente'];
+const quadrupedNames = ['cauda', 'pata-tras-longe', 'pata-frente-longe', 'corpo', 'pata-tras-perto', 'pata-frente-perto', 'cabeca'];
 function fixture() {
   return {
     stage: 'f99', kind: 'normal', body: 'humanoide', size: 1024, center: 512, feet: 960, top: 128, stride: 32,
@@ -15,6 +16,16 @@ function fixture() {
       name, x: 400, y: 128, w: 200, h: 832, pivotX: 512,
       pivotY: name.startsWith('perna-') ? 692 : 512,
       parent: name === 'arma' ? 'braco-frente' : '', file: `arte/inimigos-pecas/f99-normal/${name}.webp`,
+    })),
+  };
+}
+function quadrupedFixture() {
+  return {
+    ...fixture(), kind: 'fast', body: 'quadrupede', stride: 25,
+    parts: quadrupedNames.map(name => ({
+      name, x: 350, y: 128, w: 450, h: 832, pivotX: 512,
+      pivotY: name.startsWith('pata-') ? (name.endsWith('-longe') ? 632 : 642) : 512,
+      parent: '', file: `arte/inimigos-pecas/f99-fast/${name}.webp`,
     })),
   };
 }
@@ -30,7 +41,7 @@ test('only complete, ordered humanoid rigs are selected for the matching stage a
   assert.equal(enemyRig(98, 'normal', { rigs: [rig] }), null);
   assert.equal(enemyRig(99, 'normal', { rigs: {} }), null);
   for (const change of [
-    { body: 'quadrupede' }, { top: 960 }, { stride: 0 }, { size: 512 },
+    { body: 'quadrupede' }, { body: 'toString' }, { top: 960 }, { stride: 0 }, { size: 512 },
     { parts: rig.parts.filter(part => part.name !== 'perna-tras') },
     { parts: [...rig.parts].reverse() }, { parts: [...rig.parts, rig.parts[0]] },
     { parts: [...rig.parts, null] },
@@ -42,6 +53,22 @@ test('only complete, ordered humanoid rigs are selected for the matching stage a
     assert.equal(isEnemyRig(invalid), false);
     assert.equal(enemyRig(99, 'normal', { rigs: [invalid] }), null);
   }
+});
+
+test('quadruped rigs require all four legs in template order, permit an optional tail, and reject parents', () => {
+  const rig = quadrupedFixture();
+  assert.equal(isEnemyRig(rig), true);
+  assert.equal(enemyRig(99, 'fast', { rigs: [rig] }), rig);
+  assert.equal(isEnemyRig({ ...rig, parts: rig.parts.filter(part => part.name !== 'cauda') }), true);
+  for (const required of quadrupedNames.filter(name => name !== 'cauda')) {
+    assert.equal(isEnemyRig({ ...rig, parts: rig.parts.filter(part => part.name !== required) }), false, required);
+  }
+  const swapped = [...rig.parts];
+  [swapped[1], swapped[2]] = [swapped[2], swapped[1]];
+  assert.equal(isEnemyRig({ ...rig, parts: swapped }), false);
+  assert.equal(isEnemyRig({ ...rig, parts: rig.parts.map(part => part.name === 'cabeca' ? { ...part, parent: 'corpo' } : part) }), false);
+  assert.equal(isEnemyRig({ ...rig, parts: [...rig.parts, rig.parts[0]] }), false);
+  assert.equal(isEnemyRig({ ...fixture(), parts: fixture().parts.map(part => part.name === 'tronco' ? { ...part, parent: 'braco-frente' } : part) }), false);
 });
 
 test('gait follows distance, repeats at the stride, and opposes the limbs without using a wall clock', () => {
@@ -75,6 +102,36 @@ test('rendering anchors the source feet and centre, mirrors the entire rig, and 
   assert.doesNotMatch(renderRigEnemy(enemy, rig, 52, false), /fill="#1b2631"/);
 });
 
+test('quadruped gait pairs diagonal legs and compensates their ground contact using travelled distance', () => {
+  const rig = quadrupedFixture();
+  const step = { ...enemy, kind: 'fast', progress: rig.stride / 4 };
+  const pose = enemyRigPose(step, rig);
+  near(pose.phase, Math.PI / 2);
+  near(pose.angles['pata-tras-longe'], -20);
+  near(pose.angles['pata-frente-perto'], -20);
+  near(pose.angles['pata-frente-longe'], 20);
+  near(pose.angles['pata-tras-perto'], 20);
+  near(pose.angles.cauda, 8 * Math.sin(Math.PI / 2 - 1));
+  near(pose.angles.corpo, 1.5 * Math.sin(Math.PI));
+  near(pose.angles.cabeca, 3 * Math.sin(Math.PI + .8));
+  near(pose.drop, (960 - 637) * (1 - Math.cos(20 * Math.PI / 180)));
+  assert.deepEqual(enemyRigPose({ ...step, speed: 100, paused: true }, rig), pose);
+  assert.deepEqual(enemyRigPose({ ...step, progress: step.progress + rig.stride }, rig), pose);
+  near(enemyRigPose({ ...step, progress: 0 }, rig).drop, 0);
+  const markup = renderRigEnemy({ ...step, facing: -1 }, rig, 52);
+  assert.match(markup, /translate\(100 212\) scale\(-0\.0625 0\.0625\) translate\(-512 -960\)/);
+  assert.deepEqual([...markup.matchAll(/data-part="([^"]+)"/g)].map(match => match[1]), quadrupedNames);
+  assert.match(markup, /data-part="pata-frente-perto" transform="rotate\(-20 512 642\)"/);
+  assert.doesNotMatch(markup, /data-parent=/);
+});
+
+test('rigged bosses receive a subtle aura behind their pieces without changing other enemy kinds', () => {
+  const markup = renderRigEnemy({ ...enemy, kind: 'boss' }, fixture(), 92);
+  assert.match(markup, /class="enemy-boss-aura"/);
+  assert.ok(markup.indexOf('enemy-boss-aura') < markup.indexOf('data-part='));
+  assert.doesNotMatch(renderRigEnemy(enemy, fixture()), /enemy-boss-aura/);
+});
+
 test('rig piece URLs resolve embedded portable art', () => {
   const rig = fixture();
   const file = rig.parts.find(part => part.name === 'cabeca').file;
@@ -93,7 +150,7 @@ test('the first imported enemy uses the rig; missing rigs retain painted and pix
   assert.match(renderEnemy(enemy, 1), /rigged-enemy/);
   assert.match(renderEnemy(enemy, 2), /painted-enemy/);
   assert.match(renderEnemy(enemy), /pixel-enemy/);
-  assert.match(renderEnemy({ ...enemy, kind: 'fast' }, 1), /painted-enemy/);
+  assert.match(renderEnemy({ ...enemy, kind: 'fast' }, 2), /painted-enemy/);
 });
 
 test('damage blinking is temporary and does not mutate simulation enemies or the previous effect snapshot', () => {

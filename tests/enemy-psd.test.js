@@ -69,3 +69,12 @@ test('pivot inference uses the occupied top cap and bottom neck, not empty margi
   assert.ok(arm.pivotY >= 520 && arm.pivotY < 545);
   assert.ok(head.pivotY > 260 && head.pivotY < 280);
 });
+
+test('animal head joins at its rear neck and raised tail joins at the lower base', () => {
+  const bitmap = layer('test', 0, 0, 100, 200).imageData;
+  const head = detectPivot('cabeca', bitmap, 500, 200, 'quadrupede');
+  const tail = detectPivot('cauda', bitmap, 100, 120, 'quadrupede');
+  assert.ok(head.pivotX < 550, 'Animal head attaches behind its jaw, on the left.');
+  assert.ok(head.pivotY > 340, 'The neck sits in the lower part of the head.');
+  assert.ok(tail.pivotY > 300, 'The tail rotates at the base next to the body, not its raised tip.');
+});
