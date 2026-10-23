@@ -74,58 +74,83 @@ test('enemy kills award Qi and first wave completes with basic towers', () => {
   assert.equal(events.filter(event => event.type === 'kill').length, 7);
 });
 
-test('the actual starter can clear every stage and unlock sequential rewards without recruiting', () => {
-  let profile = createProfile();
-  for (const stage of STAGES) {
-    const events = [];
-    assert.equal(profile.unlockedStage, stage.id);
-    const initialCrystals = profile.crystals;
-    const game = new GameEngine({ stage: stage.id, heroes: [cleaner], onEvent: event => {
-      if (event.type === 'victory') {
-        assert.equal(game.state.status, 'victory');
-        profile = grantVictory(profile, stage.id).profile;
+// A careful but simple player: always the hero with the best damage per Qi, on the platforms that see the most road.
+// Three towers first, then a new tower whenever every tower reached level 3, otherwise upgrade the weakest one.
+// Qi is spent before each wave and once a second during it, as it comes in.
+function playStage(stageId, squad, onEvent = () => {}) {
+  const hero = [...squad].sort((a, b) => b.damage * b.attackSpeed / b.cost - a.damage * a.attackSpeed / a.cost)[0];
+  const game = new GameEngine({ stage: stageId, heroes: squad, onEvent: event => onEvent(event) });
+  const pads = [...game.map.pads].sort((a, b) => roadInRange(game.map, b, hero.range) - roadInRange(game.map, a, hero.range));
+  const spend = () => {
+    while (true) {
+      const towers = game.state.towers;
+      const weakest = [...towers].filter(tower => tower.level < 5).sort((a, b) => a.level - b.level)[0];
+      const free = pads.find(pad => !towers.some(tower => tower.padId === pad.id));
+      if (free && (towers.length < 3 || !weakest || weakest.level >= 3)) {
+        if (game.state.qi < hero.cost || !game.placeTower(hero, free.id).ok) return;
+        continue;
       }
-      events.push(event);
-    } });
-    // Platforms that watch the longest stretch of this stage's road come first.
-    const pads = [...game.map.pads].sort((a, b) => roadInRange(game.map, b) - roadInRange(game.map, a));
-    for (let wave = 0; wave < 5; wave++) {
-      // A human-friendly strategy, only between waves: three towers first, then a new tower
-      // whenever every tower reached level 3, otherwise upgrade the weakest one.
-      while (true) {
-        const towers = game.state.towers;
-        const weakest = [...towers].filter(tower => tower.level < 5).sort((a, b) => a.level - b.level)[0];
-        const free = pads.find(pad => !towers.some(tower => tower.padId === pad.id));
-        if (free && (towers.length < 3 || !weakest || weakest.level >= 3)) {
-          if (game.state.qi < cleaner.cost) break;
-          assert.equal(game.placeTower(cleaner, free.id).ok, true);
-          continue;
-        }
-        if (!weakest || game.state.qi < game.getNextUpgradeCost(weakest)) break;
-        assert.equal(game.upgradeTower(weakest.id).ok, true);
-      }
-      assert.equal(game.startWave().ok, true);
-      simulateWave(game);
+      if (!weakest || game.state.qi < game.getNextUpgradeCost(weakest) || !game.upgradeTower(weakest.id).ok) return;
     }
+  };
+  for (let wave = 0; wave < 5 && game.state.status === 'preparing'; wave++) {
+    spend();
+    assert.equal(game.startWave().ok, true);
+    for (let frame = 1; frame <= 180 * 30 && game.state.status === 'running'; frame++) {
+      game.update(1 / 30);
+      if (frame % 30 === 0 && game.state.status === 'running') spend();
+    }
+    assert.notEqual(game.state.status, 'running', 'The wave must finish within the simulation budget.');
+  }
+  return game;
+}
+
+test('the starter alone carries the first six stages and unlocks them in order', () => {
+  let profile = createProfile();
+  for (const stage of STAGES.slice(0, 6)) {
+    assert.equal(profile.unlockedStage, stage.id);
+    const events = [];
+    const game = playStage(stage.id, [cleaner], event => events.push(event));
     assert.equal(game.state.status, 'victory', `Stage ${stage.id} must be beatable with the Faxineiro alone.`);
-    assert.ok(game.state.lives > 0);
-    // The first stages stay gentle: no life is lost before stage 9.
-    if (stage.id < 9) assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives.`);
-    if (game.state.lives === 20) assert.equal(game.state.kills, 55);
-    else assert.ok(game.state.kills < 55);
+    // The first stages stay gentle: no life is lost before stage 6.
+    if (stage.id < 6) assert.equal(game.state.lives, 20, `Stage ${stage.id} should not cost lives.`);
+    // At stage 6 the boss gets through (5 lives), the sign that new recruits are about to be needed.
+    if (game.state.lives === 20) {
+      assert.equal(game.state.kills, 55);
+      assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
+    }
     assert.equal(game.startWave().ok, false);
     assert.equal(events.filter(event => event.type === 'victory').length, 1);
-    assert.ok(events.some(event => event.type === 'kill' && event.enemy.kind === 'boss'));
-    assert.equal(profile.crystals, initialCrystals + stage.reward);
-    assert.equal(profile.unlockedStage, Math.min(stage.id + 1, STAGES.length));
+    const before = profile.crystals;
+    profile = grantVictory(profile, stage.id).profile;
+    assert.equal(profile.crystals, before + stage.reward);
+    assert.equal(profile.unlockedStage, stage.id + 1);
     assert.deepEqual(profile.completedStages, STAGES.slice(0, stage.id).map(item => item.id));
     // A new stage resets all temporary progress while the profile keeps its rewards.
-    game.restart(Math.min(stage.id + 1, STAGES.length));
+    game.restart(stage.id + 1);
     assert.equal(game.state.qi, 180);
     assert.equal(game.state.wave, 0);
     assert.equal(game.state.towers.length, 0);
     assert.equal(profile.owned.length, 1);
   }
+});
+
+test('from stage 7 the Faxineiro alone is not enough: recruiting is part of the journey', () => {
+  assert.equal(playStage(7, [cleaner]).state.status, 'defeat');
+});
+
+test('the collection a typical player has by the end of the world clears every stage', () => {
+  // The median player after spending every crystal on recruits and raising every star (docs/BALANCEAMENTO.md).
+  const squad = [['long-chen', 0], ['shen-lei', 2], ['mo-yan', 3], ['han-feng', 5], ['faxineiro', 8]]
+    .map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  let profile = createProfile();
+  for (const stage of STAGES) {
+    const game = playStage(stage.id, squad);
+    assert.equal(game.state.status, 'victory', `A typical collection must clear stage ${stage.id}.`);
+    assert.ok(game.state.lives >= 10, `Stage ${stage.id} should leave a typical collection with spare lives.`);
+    profile = grantVictory(profile, stage.id).profile;
+  }
+  assert.equal(profile.unlockedStage, STAGES.length);
   assert.equal(profile.crystals, 300 + STAGES.reduce((total, stage) => total + stage.reward, 0));
 });
 
@@ -210,8 +235,10 @@ test('a new star upgrades the towers already on the map', () => {
 });
 
 test('after the first wave, each next wave starts by itself after a five-second break', () => {
-  const game = new GameEngine({ heroes: [cleaner] });
-  for (const pad of ['p1', 'p2', 'p4']) game.placeTower(cleaner, pad);
+  // Towers strong enough for every wave: this test is about the timing between waves, not about difficulty.
+  const sturdy = { ...cleaner, damage: 150 };
+  const game = new GameEngine({ heroes: [sturdy] });
+  for (const pad of ['p1', 'p2', 'p4']) game.placeTower(sturdy, pad);
   // Nothing happens until the player starts the first wave.
   game.update(30);
   assert.equal(game.state.wave, 0);

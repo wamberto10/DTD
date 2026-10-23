@@ -10,9 +10,12 @@ export { mapForStage, pointOnPath };
  */
 export const BALANCE = Object.freeze({
   startLives: 20,
+  // No hero may cost more than this: a squad of only dearer heroes could not place a tower before the first wave.
   startQi: 180,
   wavesPerStage: 5,
-  // Enemy health grows 18% per stage: the Faxineiro alone can still clear stage 12 with good play.
+  // Enemy health grows 18% per stage. With baseHp/hpPerWave below, the Faxineiro alone carries the first stages
+  // and from stage 7 the player needs recruits; a typical collection keeps a comfortable margin early and a tight
+  // one at stage 12 (see docs/BALANCEAMENTO.md).
   stageStep: 0.18,
   // After the player starts the first wave, each next wave starts by itself after this break (real seconds).
   waveBreakSeconds: 5,
@@ -21,7 +24,7 @@ export const BALANCE = Object.freeze({
   speeds: [1, 2],
   waves: Object.freeze({
     baseCount: 5, countPerWave: 2,
-    baseHp: 23, hpPerWave: 8, speedPerWave: 1.5,
+    baseHp: 46, hpPerWave: 16, speedPerWave: 1.5,
     spawnInterval: 1.05, finalWaveSpawnInterval: 0.85,
     // From wave 2, every 4th enemy (slot 2) is fast; from wave 3, every 5th (slot 3) is a brute; the last enemy of the final wave is the boss.
     fastFromWave: 2, fastEvery: 4, fastSlot: 2,

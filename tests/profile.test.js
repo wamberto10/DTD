@@ -112,7 +112,7 @@ test('each star adds damage and attack speed on top of the base hero', () => {
   assert.equal(seven.range, cleaner.range);
   assert.equal(seven.cost, cleaner.cost);
   assert.ok(withStars(cleaner, 8).damage > seven.damage);
-  assert.deepEqual(starBonusPercent(10), { damage: 100, attackSpeed: 30 });
+  assert.deepEqual(starBonusPercent(10), { damage: 70, attackSpeed: 20 });
 });
 
 test('profiles saved before stars turn repeated copies into fragments', () => {

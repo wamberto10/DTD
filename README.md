@@ -52,7 +52,7 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 
 ## Progressão e recrutamento
 
-Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida dos inimigos sobe 18% a cada fase. Só com o Faxineiro, jogando bem, dá para vencer todas; a partir da fase 9 ele começa a perder vidas, e os heróis recrutados fazem diferença. Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
+Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida dos inimigos sobe 18% a cada fase. O Faxineiro sozinho dá conta das seis primeiras; a partir da fase 7 é preciso recrutar e elevar estrelas. A coleção que um jogador típico junta ao longo do mundo vence todas, com folga no começo e apertada no fim. Cada raridade rende mais dano por Qi que a anterior, e nenhum herói custa mais que o Qi inicial (180). Os números e o método estão em [docs/BALANCEAMENTO.md](docs/BALANCEAMENTO.md). Todo jogador recebe 300 cristais iniciais. Uma invocação custa 100 cristais; dez custam 900. Não há garantia acumulada nem monetização.
 
 | Raridade | Chance por invocação |
 | --- | ---: |
@@ -64,7 +64,7 @@ Há 14 heróis em sete raridades e 12 fases com dificuldade crescente: a vida do
 | UR | 1,2% |
 | UR+ | 0,3% |
 
-O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Um herói repetido vira **50 fragmentos** dele. Na ficha do herói, em **Meus heróis**, os fragmentos elevam suas estrelas, sem limite. As estrelas vêm em grupos de cinco: o primeiro grupo (Ouro) custa 25, 25, 25, 50 e 50 fragmentos; cada grupo seguinte muda a cor das estrelas (Rubi, Ametista, Safira, Jade e Celestial) e custa o dobro do anterior (50, 50, 50, 100, 100; depois 100, 100, 100, 200, 200; e assim por diante). Cada estrela soma +10% de dano e +3% de ataques por segundo, também para as torres já posicionadas. Perfis antigos recebem fragmentos pelas cópias repetidas que já tinham. A primeira vitória em cada fase concede de 150 cristais (fase 1) a 425 (fase 12), 25 a mais por fase; repetir uma fase concede 50.
+O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com chances iguais. Um herói repetido vira **50 fragmentos** dele. Na ficha do herói, em **Meus heróis**, os fragmentos elevam suas estrelas, sem limite. As estrelas vêm em grupos de cinco: o primeiro grupo (Ouro) custa 25, 25, 25, 50 e 50 fragmentos; cada grupo seguinte muda a cor das estrelas (Rubi, Ametista, Safira, Jade e Celestial) e custa o dobro do anterior (50, 50, 50, 100, 100; depois 100, 100, 100, 200, 200; e assim por diante). Cada estrela soma +7% de dano e +2% de ataques por segundo, também para as torres já posicionadas. Perfis antigos recebem fragmentos pelas cópias repetidas que já tinham. A primeira vitória em cada fase concede de 150 cristais (fase 1) a 425 (fase 12), 25 a mais por fase; repetir uma fase concede 50.
 
 Heróis, cristais e fases concluídas ficam salvos no `localStorage` deste navegador. Qi, torres, melhorias e partidas em andamento são temporários e reiniciam ao trocar de fase, reiniciar ou recarregar. Não há conta, servidor de progressão ou sincronização entre dispositivos.
 

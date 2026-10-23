@@ -7,7 +7,7 @@ export const FRAGMENTS_PER_COPY = 50;
 export const STARS_PER_TIER = 5;
 export const FIRST_TIER_COSTS = [25, 25, 25, 50, 50];
 // Every star adds this much on top of the hero's base attributes.
-export const STAR_BONUS = { damage: 0.10, attackSpeed: 0.03 };
+export const STAR_BONUS = { damage: 0.07, attackSpeed: 0.02 };
 // Colour of each group of five stars; past the last colour, the stars stay Celestial.
 export const STAR_TIERS = [
   { name: 'Ouro', color: '#e9c46f' },
