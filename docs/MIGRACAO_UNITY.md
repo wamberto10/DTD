@@ -11,7 +11,12 @@ Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador 
   incluindo as 4 partidas completas, quadro a quadro.
 - **Etapa 3 concluída (2026-10-22).** A cena `Battle.unity` é jogável: cenário pintado, plataformas, torres chibi, inimigos com
   barra de vida, projéteis, interface (vidas, Qi, contagem, painel, esquadrão), pausa, 2× e ondas automáticas. O build para
-  Windows venceu a fase 1 no modo demonstração (55 abates, 20 vidas). Próxima: **etapa 4, as 12 fases e o progresso**.
+  Windows venceu a fase 1 no modo demonstração (55 abates, 20 vidas).
+- **Etapas 4 e 5 concluídas (2026-10-22).** O layout inteiro da versão web está no Unity: barra lateral, cristais no topo,
+  "O caminho começa aqui." com *Selecionar fase*, Sabedoria do Dao, Recompensa da fase, as telas Esquadrão, Recrutamento e
+  Meus heróis (com estrelas) e as janelas de fase, ficha do herói e resultado do recrutamento. O perfil (`PlayerProfile.cs`)
+  segue as regras de `src/profile.js` e é salvo com `PlayerPrefs`; 17 testes EditMode passam (7 de paridade e 10 do perfil).
+  Próxima: **etapa 6, som e o build WebGL testado no navegador**.
 
 ## O que já está pronto
 
@@ -47,7 +52,7 @@ Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador 
 | `src/maps.js`: caminho e plataformas | `StageDefinition` (ScriptableObject), lido de `fases.json` |
 | `src/data.js`: heróis, raridades, fases | `HeroDefinition`, `RarityTable`, `StageDefinition` (ScriptableObjects gerados do JSON) |
 | `src/stars.js`: estrelas e fragmentos | `StarRules.cs` |
-| `src/profile.js`: perfil, recrutamento, esquadrão | `PlayerProfile.cs` + `SaveSystem.cs` (JSON em `Application.persistentDataPath`) |
+| `src/profile.js`: perfil, recrutamento, esquadrão | `PlayerProfile.cs` (regras) + `ProfileStore.cs` (JSON salvo com `PlayerPrefs`, que também funciona no WebGL) |
 | `src/app.js` + `src/style.css`: telas | UI Toolkit: Defesa, Esquadrão, Recrutamento e Meus heróis, mais as janelas (fase, resultado, ficha do herói, recrutamento) |
 | Mapa, torres e inimigos em SVG | `SpriteRenderer` para cenário, heróis e inimigos; barras de vida; projéteis como sprites ou partículas |
 | Fontes Pixelify Sans e DM Sans | Font Assets do Unity, a partir dos arquivos TTF do Google Fonts (licença OFL) |
