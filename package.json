@@ -6,6 +6,7 @@
   "scripts": {
     "arte": "node scripts/preparar-arte.mjs",
     "arte:pecas": "node scripts/preparar-inimigos-pecas.mjs",
+    "arte:folhas": "node scripts/preparar-folhas.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "build:portable": "npm run build && node scripts/build-portable.mjs",

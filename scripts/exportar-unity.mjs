@@ -14,6 +14,7 @@ import { FIRST_TIER_COSTS, FRAGMENTS_PER_COPY, STARS_PER_TIER, STAR_BONUS, STAR_
 import { ART } from '../src/art-manifest.js';
 import { STORAGE_KEY, createProfile, victoryStars, summon, talentModifiers, dailyMissionIds, DAILY_COUNTERS } from '../src/profile.js';
 import { prepareEnemyPieces } from './preparar-inimigos-pecas.mjs';
+import { prepareEnemySheets } from './preparar-folhas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = path.join(root, 'unity-export');
@@ -214,6 +215,16 @@ await json('casos-de-teste.json', {
   dailyPicks: ['2026-10-23', '2026-10-24', '2026-12-31', '2027-01-01', '2028-02-29'].map(day => ({ day, ids: dailyMissionIds(day) })),
 });
 
+// ---------- Walk sheets of the enemies (4 steps × 4 directions, from arte/ia/inimigos-folhas) ----------
+const enemySheets = await prepareEnemySheets({ unityOut: out, quiet: true });
+await json('folhas-inimigos.json', {
+  about: 'Each picture: 4 columns (walk steps) × 4 rows (down, left, right, up), even cells. The row follows the way the road goes where the enemy is; the step is floor(progress / stride) % 4. feet = y of the feet line inside a cell, from the top.',
+  stride: 7,
+  sheets: enemySheets.map(({ key, stage, kind, cellWidth, cellHeight, feet, characterHeight }) => ({
+    key, stage, kind, file: `arte/inimigos-folhas/${key}.png`, cellWidth, cellHeight, feet, characterHeight,
+  })),
+});
+
 // ---------- Art (PNG) ----------
 const raw = path.join(root, 'arte', 'ia');
 const webp = path.join(root, 'public', 'arte');
@@ -274,6 +285,7 @@ Gerado por \`npm run unity\` a partir do jogo web. Não edite à mão: rode o co
 - \`dados/fases.json\`: os 2 mundos e as 24 fases, com caminho e plataformas (espaço de batalha 1000 × 600, origem no canto superior esquerdo, y para baixo).
 - \`dados/regras.json\`: todos os números e fórmulas (combate, ondas, torres, estrelas, recrutamento, esquadrão, progresso).
 - \`dados/casos-de-teste.json\`: resultados do motor atual para conferir a versão em C#.
+- \`dados/folhas-inimigos.json\` e \`arte/inimigos-folhas/\`: as folhas de caminhada dos inimigos (4 passos × 4 direções).
 - \`arte/\`: heróis (512 px), inimigos (384 px), chefes (512 px) e cenários (2000 × 1200), em PNG.
 - \`dados/animacoes-inimigos.json\` e \`arte/inimigos-pecas/\`: peças PNG, posições e juntas dos PSDs validados; a imagem estática continua disponível como fallback.
 

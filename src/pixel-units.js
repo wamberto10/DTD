@@ -1,12 +1,51 @@
 // Small sprites use a two-pixel grid so movement never blurs their contours.
-import { enemyArt } from './chibi-art.js';
+import { enemyArt, artUrl } from './chibi-art.js';
 import { enemyRig, renderRigEnemy } from './enemy-rig.js';
+import { ENEMY_SHEETS } from './enemy-sheets-manifest.js';
+import { mapForStage, pointOnPath, stageKey } from './maps.js';
 
 const rect = (x, y, width, height, fill, extra = '') =>
   `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${fill}" ${extra}/>`;
 
 // On-map height of each painted enemy kind, in battle units.
 const ART_HEIGHT = { normal: 50, fast: 46, brute: 62, boss: 92 };
+
+// Walk sheets (scripts/preparar-folhas.mjs): 4 steps × 4 directions. A new step every 7 battle units walked, so the
+// feet keep pace with the road; the row follows the way the road goes where the enemy is.
+const SHEET_ROWS = { down: 0, left: 1, right: 2, up: 3 };
+const SHEET_STRIDE = 7;
+
+export function enemySheet(stage, kind) {
+  const entry = ENEMY_SHEETS[`${stageKey(stage)}-${kind}`];
+  return entry ? { ...entry, url: artUrl(entry.file) } : null;
+}
+
+/** Which way the road goes where the enemy is: down, left, right or up. */
+export function roadDirection(enemy, stage) {
+  const map = mapForStage(stage);
+  const here = pointOnPath(Math.max(0, enemy.progress), map), ahead = pointOnPath(Math.max(0, enemy.progress) + 4, map);
+  const dx = ahead.x - here.x, dy = ahead.y - here.y;
+  if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) return enemy.facing < 0 ? 'left' : 'right';
+  return Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy > 0 ? 'down' : 'up');
+}
+
+function renderSheetEnemy(enemy, sheet, stage, showHealth) {
+  const height = ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal;
+  const scale = height / sheet.characterHeight;
+  const cellWidth = sheet.cellWidth * scale, cellHeight = sheet.cellHeight * scale;
+  const x = Math.round(enemy.x), feet = Math.round(enemy.y + 12), top = feet - height;
+  const row = SHEET_ROWS[roadDirection(enemy, stage)];
+  const step = Math.floor(Math.max(0, enemy.progress) / SHEET_STRIDE) % 4;
+  const barWidth = Math.max(28, Math.min(Math.round(cellWidth) - 8, enemy.kind === 'boss' ? 84 : 48));
+  const health = Math.max(0, Math.round(barWidth * enemy.hp / enemy.maxHp));
+  const barX = x - Math.round(barWidth / 2);
+  // A window on one cell of the sheet: the nested svg shows only the current step of the current direction.
+  return `<g class="enemy sheet-enemy" data-kind="${enemy.kind}">
+    <ellipse cx="${x}" cy="${feet - 2}" rx="${Math.round(cellWidth * 0.26)}" ry="5" fill="#081210" opacity=".38"/>
+    <svg x="${(x - cellWidth / 2).toFixed(1)}" y="${(feet - sheet.feet * scale).toFixed(1)}" width="${cellWidth.toFixed(1)}" height="${cellHeight.toFixed(1)}" viewBox="${step * sheet.cellWidth} ${row * sheet.cellHeight} ${sheet.cellWidth} ${sheet.cellHeight}" overflow="hidden"><image href="${sheet.url}" width="${sheet.cellWidth * 4}" height="${sheet.cellHeight * 4}"/></svg>
+    ${showHealth ? rect(barX - 1, top - 9, barWidth + 2, 5, '#1b2631') + rect(barX, top - 8, health, 3, enemy.kind === 'boss' ? '#e7a18a' : '#c4d48d') : ''}
+  </g>`;
+}
 
 function renderPaintedEnemy(enemy, art, showHealth) {
   const height = ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal;
@@ -92,9 +131,12 @@ function renderAfflictions(enemy) {
 }
 
 export function renderEnemy(enemy, stage, visual = {}) {
-  const rig = stage ? enemyRig(stage, enemy.kind) : null;
-  const art = !rig && stage ? enemyArt(stage, enemy.kind) : null;
-  let markup = rig ? renderRigEnemy(enemy, rig, ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal, !visual.dying)
+  // A walk sheet comes first, then the cut-out animation, then the still picture, then the pixel drawing.
+  const sheet = stage ? enemySheet(stage, enemy.kind) : null;
+  const rig = !sheet && stage ? enemyRig(stage, enemy.kind) : null;
+  const art = !sheet && !rig && stage ? enemyArt(stage, enemy.kind) : null;
+  let markup = sheet ? renderSheetEnemy(enemy, sheet, stage, !visual.dying)
+    : rig ? renderRigEnemy(enemy, rig, ART_HEIGHT[enemy.kind] || ART_HEIGHT.normal, !visual.dying)
     : art ? renderPaintedEnemy(enemy, art, !visual.dying) : renderPixelEnemy(enemy, !visual.dying);
   if (!visual.dying) markup += renderAfflictions(enemy);
   // Flying enemies float above the road, with their shadow left on the ground.

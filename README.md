@@ -124,6 +124,8 @@ npm run arte
 
 O comando gera as cópias e atualiza `src/art-manifest.js`. Um cenário novo também precisa do caminho e das nove plataformas traçados em `src/maps.js`; até lá, a fase usa o caminho padrão.
 
+**Folhas de caminhada.** Os inimigos estão ganhando folhas de sprites: uma imagem com 16 quadros, 4 passos em cada uma das 4 direções (frente, esquerda, direita e costas). Os prompts de todos estão em [docs/PROMPTS_FOLHAS_INIMIGOS.md](docs/PROMPTS_FOLHAS_INIMIGOS.md), e as imagens ficam em `arte/ia/inimigos-folhas/`. `npm run arte:folhas` recorta os quadros, alinha os pés, corrige a perna repetida de frente e de costas e gera `public/arte/inimigos-folhas/` e `src/enemy-sheets-manifest.js` (`npm run arte` e `npm run unity` também fazem isso). No jogo, o inimigo vira de frente quando a estrada desce, de costas quando sobe e de lado nos trechos retos, com um passo a cada 7 unidades andadas. Quando os quadros se encostam (asas, caudas), o corte é feito pela grade 4 × 4; folhas que vieram com esquerda e direita trocadas ficam listadas no script. Quando um inimigo tem folha, ela vem antes da animação por peças e da arte parada. Hoje 31 inimigos têm folha: as fases 1, 2, 3, 10, 11, 18 e 19 completas e três da fase 8.
+
 Os quatro inimigos da fase 1 já usam animação por peças a partir de PSDs em `arte/ia/inimigos-pecas/` e
 `arte/ia/chefes-pecas/`: Servo, Macaco, Valentão e Discípulo de Elite. `npm run arte:pecas`
 atualiza só esses recortes; `npm run arte` também os inclui. A versão portátil incorpora todas as peças. O guia,
@@ -147,6 +149,7 @@ O resultado fica em `unity-export/`, fora do git, e pode ser gerado de novo a qu
 - `src/data.js`: heróis (com elemento, área e habilidade), raridades, habilidades dos inimigos, os dois mundos e as 24 fases, estrelas e desafio, talentos e missões do dia.
 - `src/chibi-art.js` e `src/art-manifest.js`: arte chibi de heróis, inimigos e cenários.
 - `scripts/preparar-arte.mjs`: gera `public/arte/` a partir de `arte/ia/`.
+- `scripts/preparar-folhas.mjs` e `src/enemy-sheets-manifest.js`: folhas de caminhada dos inimigos (4 passos × 4 direções).
 - `scripts/exportar-unity.mjs`: gera o pacote `unity-export/` para o Unity.
 - `src/profile.js`: gacha com garantia, recompensas, estrelas das fases, desafio, talentos, missões do dia, conquistas e persistência local.
 - `src/settings.js`: configurações (som, volumes, velocidade inicial, números de dano), salvas à parte.

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { loadEnemyRigs, prepareEnemyPieces } from './preparar-inimigos-pecas.mjs';
+import { prepareEnemySheets } from './preparar-folhas.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const raw = path.join(root, 'arte', 'ia');
@@ -72,3 +73,6 @@ export const ART = {
 await writeFile(path.join(root, 'src', 'art-manifest.js'), source);
 console.log(`Arte pronta: ${Object.keys(manifest.herois).length} heróis, ${Object.values(manifest.inimigos).reduce((n, s) => n + Object.keys(s).length, 0)} inimigos e chefes, ${Object.keys(manifest.fases).length} cenários (${(total / 1024).toFixed(1)} MB).`);
 await prepareEnemyPieces(enemyRigs);
+// Walk sheets of the enemies (arte/ia/inimigos-folhas): after the rest, since public/arte is written above.
+const sheets = await prepareEnemySheets({ quiet: true });
+console.log(`Folhas de caminhada: ${sheets.length}.`);
