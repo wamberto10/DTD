@@ -43,7 +43,8 @@ for (const name of await pngs('herois')) {
 
 for (const dir of ['inimigos', 'chefes']) {
   for (const name of await pngs(dir)) {
-    const match = name.match(/^(f\d{2})_(comum|rapido|forte|chefe)_/);
+    // Sprite sheets left next to the pictures ("..._folha.png") are not enemy pictures.
+    const match = !/_folha\.png$/i.test(name) && name.match(/^(f\d{2})_(comum|rapido|forte|chefe)_/);
     if (!match) { console.warn(`Ignorado (nome fora do padrão): ${dir}/${name}`); continue; }
     const [, stage, kind] = match;
     const box = kind === 'chefe' ? { width: 400, height: 320 } : { width: 300, height: 220 };

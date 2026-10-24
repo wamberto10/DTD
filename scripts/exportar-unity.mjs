@@ -244,7 +244,8 @@ for (const id of Object.keys(ART.herois)) {
 }
 for (const dir of ['inimigos', 'chefes']) {
   for (const file of await pngs(path.join(raw, dir))) {
-    const match = file.match(/^(f\d{2})_(comum|rapido|forte|chefe)_/);
+    // Sprite sheets left next to the pictures ("..._folha.png") are not enemy pictures.
+    const match = !/_folha\.png$/i.test(file) && file.match(/^(f\d{2})_(comum|rapido|forte|chefe)_/);
     if (match) await sprite(path.join(raw, dir, file), path.join(out, 'arte', 'inimigos', `${match[1]}-${KIND[match[2]]}.png`), match[2] === 'chefe' ? 512 : 384);
   }
 }
