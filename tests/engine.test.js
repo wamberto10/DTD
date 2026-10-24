@@ -341,3 +341,22 @@ test('after the first wave, each next wave starts by itself after a five-second 
   game.restart();
   assert.equal(game.state.nextWaveIn, null);
 });
+
+test('the match summary credits the damage and the kills of each hero', () => {
+  const squad = [['faxineiro', 2], ['aprendiz', 0], ['lin-yue', 0]].map(([id, stars]) => withStars(HEROES.find(hero => hero.id === id), stars));
+  const events = [];
+  const game = playStage(1, squad, event => events.push(event));
+  const stats = Object.values(game.state.heroStats);
+  assert.equal(stats.reduce((sum, item) => sum + item.kills, 0), game.state.kills, 'every kill belongs to a hero');
+  assert.ok(stats.every(item => item.damage > 0));
+  const damage = events.filter(event => event.type === 'damage');
+  assert.equal(damage.reduce((sum, event) => sum + (event.tower ? 0 : 1), 0), 0);
+  assert.ok(events.some(event => event.type === 'attack'));
+  assert.ok(damage.some(event => event.crit), 'the Faxineiro lands critical hits');
+  // Dismissing a tower keeps its line in the summary.
+  const fresh = new GameEngine({ stage: 1, heroes: squad });
+  fresh.placeTower(squad[0], 'p1');
+  fresh.state.heroStats.faxineiro = { damage: 10, kills: 1 };
+  fresh.sellTower(fresh.state.towers[0].id);
+  assert.deepEqual(fresh.state.heroStats.faxineiro, { damage: 10, kills: 1 });
+});

@@ -1,7 +1,8 @@
 import { GameEngine, MAP, WAVE_BREAK_SECONDS, BALANCE } from './engine.js';
 import { HEROES, RARITIES, STAGES, WORLDS, worldOfStage, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, ELEMENTS, TRAITS, PROGRESSION, TALENTS, DAILY } from './data.js';
+import { loadSettings, saveSettings } from './settings.js';
 import { loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, daoStars, challengeOpen, challengeReward, pullsToPity,
-  freeStars, talentBonus, raiseTalent, resetTalents, talentModifiers, dailyMissions, recordDaily, claimDaily } from './profile.js';
+  freeStars, talentBonus, raiseTalent, resetTalents, talentModifiers, dailyMissions, recordDaily, claimDaily, achievements, claimAchievement } from './profile.js';
 import { FRAGMENTS_PER_COPY, STARS_PER_TIER, nextStarCost, starBonusPercent, starTier, withStars } from './stars.js';
 import { icon, portrait, renderTerrain } from './art.js';
 import { renderEnemy, renderProjectile, renderPad, ELEMENT_COLORS, TRAIT_COLORS } from './pixel-units.js';
@@ -12,7 +13,8 @@ import { emptyEnemyEffects, advanceEnemyEffects, enemyHitEffect, enemyDeathProgr
 const app = document.querySelector('#app');
 const modalRoot = document.querySelector('#modal-root');
 let profile = loadProfile();
-const ui = { view: 'defense', stage: 1, mode: 'normal', selectedHero: 'faxineiro', selectedTower: null, speed: 1, paused: false, sound: false, filter: 'all', reward: null };
+const settings = loadSettings();
+const ui = { view: 'defense', stage: 1, mode: 'normal', selectedHero: 'faxineiro', selectedTower: null, speed: settings.defaultSpeed, paused: false, sound: settings.sound, filter: 'all', reward: null };
 let engine;
 let toastTimer;
 let audioContext;
@@ -27,6 +29,10 @@ let defeatedEnemies = [];
 let victoryPending = false;
 // Short visual effects on the map (blasts, heals, skills): { x, y, radius, color, age, life }.
 let areaEffects = [];
+// Damage numbers rising from the enemies: { x, y, text, color, size, age, life }.
+let damageNumbers = [];
+// Towers that just attacked, to play their short strike animation.
+const strikingTowers = new Set();
 // What the current match already sent to the daily missions.
 let dailySent = { kills: 0, skills: 0, upgrades: 0, bosses: 0 };
 // Today's date (YYYY-MM-DD, local time): the daily missions change at midnight.
@@ -81,9 +87,17 @@ function flushDaily(extra = {}) {
   return true;
 }
 
-// Something to collect on the Cultivo page: free stars for a talent, or a finished mission.
+// Something to collect on the Cultivo page: free stars for a talent, a finished mission or an achievement reached.
 const cultivationReady = () => TALENTS.some(t => profile.talents?.[t.id] < t.maxLevel && freeStars(profile) > profile.talents[t.id])
-  || dailyMissions(profile, today()).some(m => m.done && !m.claimed);
+  || dailyMissions(profile, today()).some(m => m.done && !m.claimed)
+  || achievements(profile).some(a => a.done && !a.claimed);
+
+// Achievements reached but not received yet, to announce the new ones.
+const readyAchievements = () => new Set(achievements(profile).filter(a => a.done && !a.claimed).map(a => a.id));
+function announceAchievements(before) {
+  const fresh = achievements(profile).filter(a => a.done && !a.claimed && !before.has(a.id));
+  if (fresh.length) setTimeout(() => toast(`Conquista: ${fresh.map(a => a.name).join(', ')}. Receba a recompensa no Cultivo.`), 900);
+}
 
 function sound(kind = 'click') {
   if (!ui.sound) return;
@@ -95,7 +109,7 @@ function sound(kind = 'click') {
     oscillator.type = 'sine';
     oscillator.frequency.setValueAtTime(kind === 'victory' ? 660 : kind === 'kill' ? 260 : 440, audioContext.currentTime);
     oscillator.frequency.exponentialRampToValueAtTime(kind === 'victory' ? 880 : 180, audioContext.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.025, audioContext.currentTime);
+    gain.gain.setValueAtTime(Math.max(0.0011, 0.036 * settings.effectsVolume / 100), audioContext.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.18);
     oscillator.connect(gain); gain.connect(audioContext.destination);
     oscillator.start(); oscillator.stop(audioContext.currentTime + 0.2);
@@ -114,9 +128,13 @@ function onEngineEvent(event) {
   if (event.type === 'kill') { defeatedEnemies.push({ ...event.enemy }); sound('kill'); }
   if (event.type === 'heal') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: TRAIT_COLORS.healer, age: 0, life: .5 });
   if (event.type === 'summon') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: TRAIT_COLORS.summoner, age: 0, life: .5 });
+  if (event.type === 'attack') strikingTowers.add(event.tower.id);
+  if (event.type === 'damage') addDamageNumber(event);
   if (event.type === 'splash') areaEffects.push({ x: event.x, y: event.y, radius: event.radius, color: ELEMENT_COLORS[event.tower?.hero.element] || '#f1e6c4', age: 0, life: .35 });
   if (event.type === 'waveComplete' && engine.state.status === 'preparing') toast(`Onda ${engine.state.wave} concluída. A próxima começa em ${WAVE_BREAK_SECONDS} segundos.`);
   if (event.type === 'victory') {
+    const before = readyAchievements();
+    setTimeout(() => announceAchievements(before), 0);
     flushDaily({ victories: 1, perfect: engine.state.lives === engine.state.maxLives ? 1 : 0 });
     const result = grantVictory(profile, ui.stage, { lives: engine.state.lives, maxLives: engine.state.maxLives, mode: engine.state.mode });
     profile = result.profile; ui.reward = result; persist(); sound('victory');
@@ -124,6 +142,32 @@ function onEngineEvent(event) {
     victoryPending = true;
   }
   if (event.type === 'defeat') { if (flushDaily()) persist(); setTimeout(() => { render(); showResult(false); }, 80); }
+}
+
+// A number rising from the enemy hit: bigger and gold for a critical, small and in the element's colour for burn and
+// poison, blue when only a shield was hit.
+function addDamageNumber(event) {
+  if (!settings.damageNumbers) return;
+  const { enemy, amount, crit, overTime, shielded, tower } = event;
+  const color = crit ? '#ffd36b' : overTime ? ELEMENT_COLORS[tower?.hero.element] || '#d9c08a' : shielded ? '#9fd0ff' : '#f6f0de';
+  damageNumbers.push({
+    x: enemy.x + (Math.random() * 14 - 7), y: enemy.y - (enemy.kind === 'boss' ? 58 : 38) - (enemy.flying ? 16 : 0),
+    text: crit ? `${amount}!` : String(amount), color, size: crit ? 17 : overTime ? 9 : 12, age: 0, life: crit ? .9 : .7,
+  });
+  // Many towers hitting at once: the oldest numbers go first.
+  if (damageNumbers.length > 60) damageNumbers.splice(0, damageNumbers.length - 60);
+}
+
+// Who held the line: damage and kills of each hero in the match just finished.
+function matchSummary() {
+  const rows = Object.entries(engine.state.heroStats || {})
+    .map(([id, stats]) => ({ hero: heroById(id), ...stats }))
+    .filter(row => row.hero && row.damage > 0)
+    .sort((a, b) => b.damage - a.damage);
+  if (!rows.length) return '';
+  const top = rows[0].damage;
+  const total = rows.reduce((sum, row) => sum + row.damage, 0);
+  return `<div class="match-summary"><span class="eyebrow">QUEM SEGUROU A LINHA</span>${rows.map((row, index) => `<div class="summary-row ${index === 0 ? 'mvp' : ''}"><span class="summary-name">${index === 0 ? icon('trophy', 12) : ''}${escapeText(row.hero.name)}</span><span class="summary-bar"><i style="width:${(row.damage / top * 100).toFixed(1)}%;background:${ELEMENT_COLORS[row.hero.element] || row.hero.color}"></i></span><b>${row.damage.toLocaleString('pt-BR')}</b><small>${Math.round(row.damage / total * 100)}% · ${row.kills} ${row.kills === 1 ? 'abate' : 'abates'}</small></div>`).join('')}</div>`;
 }
 
 function logo() {
@@ -140,7 +184,7 @@ function render() {
     <div class="journey-card"><span class="eyebrow">A JORNADA DA ASCENSÃO</span><div><span>${worldOfStage(ui.stage).name}</span><span>${worldDone(worldOfStage(ui.stage))}/${worldSize(worldOfStage(ui.stage))}</span></div><div class="journey-track"><i style="width:${worldDone(worldOfStage(ui.stage)) / worldSize(worldOfStage(ui.stage)) * 100}%"></i></div><div class="journey-stars">${icon('star', 11)} ${daoStars(profile)} estrelas do Dao</div><p>Até o maior mestre deu<br>seu primeiro passo.</p></div>
     <div class="player-card"><div class="player-avatar">${icon('sword', 20)}</div><div><strong>Cultivador</strong><span>Discípulo iniciante</span></div><span class="online-dot" title="Progresso local"></span></div>
   </aside>
-  <div class="workspace"><header class="topbar"><div class="breadcrumb">${worldOfStage(ui.stage).name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão', cultivation: 'Talentos e missões' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><div class="topbar-avatar">C</div></div></header>
+  <div class="workspace"><header class="topbar"><div class="breadcrumb">${worldOfStage(ui.stage).name} ${icon('chevronRight', 13)} <span>${{ defense: 'Campo de batalha', recruit: 'Pavilhão de recrutamento', heroes: 'Coleção de heróis', squad: 'Preparação do esquadrão', cultivation: 'Talentos e missões' }[ui.view]}</span></div><div class="topbar-actions"><div class="crystal-balance" title="Cristais do Dao — usados no recrutamento">${icon('gem', 17)}<strong id="crystal-count">${profile.crystals.toLocaleString('pt-BR')}</strong><span>Cristais do Dao</span></div><span class="topbar-divider"></span><button class="icon-button" data-action="sound" aria-label="${ui.sound ? 'Desativar' : 'Ativar'} som" title="${ui.sound ? 'Desativar' : 'Ativar'} som">${icon(ui.sound ? 'volume' : 'volumeOff', 19)}</button><button class="icon-button" data-action="settings" aria-label="Configurações" title="Configurações">${icon('settings', 19)}</button><div class="topbar-avatar">C</div></div></header>
   <main>${ui.view === 'recruit' ? renderRecruit() : ui.view === 'heroes' ? renderHeroes() : ui.view === 'squad' ? renderSquadPage() : ui.view === 'cultivation' ? renderCultivation() : renderDefense()}</main>
   <footer class="page-footer"><span><i></i> PIXEL ART · PROTÓTIPO JOGÁVEL <b>v0.2</b></span><span>Inspirado em Martial Peak · protótipo independente, sem vínculo oficial.</span></footer></div>`;
   lastHud = ''; lastPadMarkup = ''; lastTowerMarkup = ''; lastSquadMarkup = '';
@@ -220,7 +264,7 @@ function renderCommandPanel() {
   const tower = s.towers.find(t => t.id === ui.selectedTower);
   if (tower) {
     const hero = tower.hero; const rarity = rarityOf(hero); const stats = engine.getTowerStats(tower); const cost = engine.getNextUpgradeCost(tower);
-    return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">CULTIVADOR EM CAMPO</span><button class="icon-button" data-action="deselect-tower" aria-label="Fechar detalhes">${icon('close', 15)}</button></div><div class="tower-detail"><div class="detail-portrait" style="--hero-color:${rarity.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${rarity.color}">${rarity.name}</span><h2>${hero.name}</h2><span class="level-badge">NÍVEL ${tower.level}</span></div>${heroAbilities(hero)}<div class="stat-row"><span>${icon('sword', 15)} Dano</span><b>${Math.round(stats.damage)}</b></div><div class="stat-row"><span>${icon('shield', 15)} Alcance</span><b>${Math.round(stats.range)}</b></div><div class="stat-row"><span>${icon('speed', 15)} Ataques / s</span><b>${Number(stats.attackSpeed).toFixed(1)}</b></div>${hero.skill ? `<button class="skill-button ${engine.skillReady(tower) ? 'ready' : ''}" data-action="use-skill" ${engine.skillReady(tower) && s.status === 'running' ? '' : 'disabled'}>${icon('sparkles', 15)} ${hero.skill.name} · ${engine.skillReady(tower) ? 'usar habilidade' : `${Math.min(100, Math.round(tower.skillCharge / hero.skill.cooldown * 100))}%`}</button>` : ''}<button class="primary-button upgrade-button" data-action="upgrade" ${!Number.isFinite(cost) || s.qi < cost || s.status === 'victory' || s.status === 'defeat' ? 'disabled' : ''}>${icon('arrowUp', 17)} ${Number.isFinite(cost) ? `Melhorar · ${cost} Qi` : 'Nível máximo'}</button><button class="sell-button" data-action="sell">Dispensar · recuperar ${Math.floor(tower.spent * .7)} Qi</button><p class="rail-note">As melhorias duram apenas nesta fase.</p></div>`;
+    return `<div class="command-card"><div class="rail-heading"><span class="eyebrow">CULTIVADOR EM CAMPO</span><button class="icon-button" data-action="deselect-tower" aria-label="Fechar detalhes">${icon('close', 15)}</button></div><div class="tower-detail"><div class="detail-portrait" style="--hero-color:${rarity.color}">${portrait(hero)}</div><span class="rarity-text" style="color:${rarity.color}">${rarity.name}</span><h2>${hero.name}</h2><span class="level-badge">NÍVEL ${tower.level}</span></div>${heroAbilities(hero)}<div class="stat-row"><span>${icon('sword', 15)} Dano</span><b>${Math.round(stats.damage)}</b></div><div class="stat-row"><span>${icon('shield', 15)} Alcance</span><b>${Math.round(stats.range)}</b></div><div class="stat-row"><span>${icon('speed', 15)} Ataques / s</span><b>${Number(stats.attackSpeed).toFixed(1)}</b></div><div class="stat-row match-stat"><span>${icon('trophy', 15)} Nesta fase</span><b>${(s.heroStats?.[hero.id]?.damage || 0).toLocaleString('pt-BR')} de dano · ${s.heroStats?.[hero.id]?.kills || 0} abates</b></div>${hero.skill ? `<button class="skill-button ${engine.skillReady(tower) ? 'ready' : ''}" data-action="use-skill" ${engine.skillReady(tower) && s.status === 'running' ? '' : 'disabled'}>${icon('sparkles', 15)} ${hero.skill.name} · ${engine.skillReady(tower) ? 'usar habilidade' : `${Math.min(100, Math.round(tower.skillCharge / hero.skill.cooldown * 100))}%`}</button>` : ''}<button class="primary-button upgrade-button" data-action="upgrade" ${!Number.isFinite(cost) || s.qi < cost || s.status === 'victory' || s.status === 'defeat' ? 'disabled' : ''}>${icon('arrowUp', 17)} ${Number.isFinite(cost) ? `Melhorar · ${cost} Qi` : 'Nível máximo'}</button><button class="sell-button" data-action="sell">Dispensar · recuperar ${Math.floor(tower.spent * .7)} Qi</button><p class="rail-note">As melhorias duram apenas nesta fase.</p></div>`;
   }
   const current = Math.min(s.wave + (s.status === 'preparing' ? 1 : 0), s.totalWaves);
   const stage = stageInfo();
@@ -257,7 +301,28 @@ function renderCultivation() {
   const missionRows = missions.map(m => `<div class="mission ${m.done ? 'done' : ''} ${m.claimed ? 'claimed' : ''}"><div class="mission-text"><strong>${escapeText(m.text)}</strong><div class="mission-track"><i style="width:${m.progress / m.goal * 100}%"></i></div><small>${m.progress}/${m.goal}</small></div><button class="${m.done && !m.claimed ? 'primary-button' : 'secondary-button'} mission-button" data-action="claim-mission" data-id="${m.id}" ${m.done && !m.claimed ? '' : 'disabled'}>${m.claimed ? `${icon('check', 14)} Recebida` : `${icon('gem', 14)} ${m.reward}`}</button></div>`).join('');
   return `${pageHeading('O CAMINHO É LONGO', 'Cultivo<span>.</span>', 'Gaste as estrelas do Dao em talentos permanentes e cumpra as missões do dia por cristais.', `<span class="collection-count">${icon('star', 18)}<b>${free}</b> de ${daoStars(profile)} estrelas livres</span>`)}
   <div class="cultivation-layout"><section class="talent-panel"><div class="section-heading"><h2>Talentos permanentes</h2><button class="text-button" data-action="talent-reset">Redistribuir estrelas</button></div><p class="panel-note">Cada nível custa tantas estrelas quanto o seu número. Ganhe estrelas vencendo fases sem perder vidas e vencendo desafios. Os talentos valem a partir da próxima partida.</p><div class="talent-grid">${talentCards}</div></section>
-  <section class="daily-panel"><div class="section-heading"><h2>Missões do dia</h2><span class="panel-note">Renovam à meia-noite</span></div>${missionRows}<p class="panel-note ${claimedAll ? 'done' : ''}">${claimedAll ? `${icon('check', 12)} Todas recebidas hoje. Volte amanhã.` : `Receba as ${DAILY.count} e ganhe mais ${DAILY.allDoneBonus} cristais.`}</p></section></div>`;
+  <section class="daily-panel"><div class="section-heading"><h2>Missões do dia</h2><span class="panel-note">Renovam à meia-noite</span></div>${missionRows}<p class="panel-note ${claimedAll ? 'done' : ''}">${claimedAll ? `${icon('check', 12)} Todas recebidas hoje. Volte amanhã.` : `Receba as ${DAILY.count} e ganhe mais ${DAILY.allDoneBonus} cristais.`}</p></section></div>
+  ${renderAchievements()}`;
+}
+
+// Every achievement: progress, and the reward button once it is reached.
+function renderAchievements() {
+  const list = achievements(profile);
+  const received = list.filter(a => a.claimed).length;
+  return `<section class="achievement-panel"><div class="section-heading"><h2>Conquistas</h2><span class="panel-note">${received} de ${list.length} recebidas</span></div><div class="achievement-grid">${list.map(a => `<article class="achievement-card ${a.claimed ? 'claimed' : a.done ? 'done' : ''}"><div class="achievement-icon">${icon(a.claimed ? 'check' : a.done ? 'trophy' : 'lock', 16)}</div><div class="achievement-text"><strong>${escapeText(a.name)}</strong><span>${escapeText(a.description)}</span>${a.target > 1 ? `<div class="mission-track"><i style="width:${a.progress / a.target * 100}%"></i></div><small>${a.progress.toLocaleString('pt-BR')}/${a.target.toLocaleString('pt-BR')}</small>` : ''}</div><button class="${a.done && !a.claimed ? 'primary-button' : 'secondary-button'} achievement-button" data-action="claim-achievement" data-id="${a.id}" ${a.done && !a.claimed ? '' : 'disabled'}>${a.claimed ? 'Recebida' : `${icon('gem', 13)} ${a.reward}`}</button></article>`).join('')}</div></section>`;
+}
+
+// Sound, volumes, the speed each stage starts at and the damage numbers.
+function showSettings() {
+  const toggle = (key, on) => `<button class="setting-toggle ${on ? 'on' : ''}" data-action="setting-toggle" data-key="${key}" aria-pressed="${on}">${on ? 'Ligado' : 'Desligado'}</button>`;
+  const slider = (key, label, note = '') => `<label class="setting-row"><span>${label}${note ? `<small>${note}</small>` : ''}</span><input type="range" min="0" max="100" step="5" value="${settings[key]}" data-setting="${key}"><b id="setting-${key}">${settings[key]}%</b></label>`;
+  showModal(`<span class="eyebrow">AJUSTES</span><h2 id="modal-title">Configurações.</h2><p class="modal-description">Ficam salvas neste navegador.</p><div class="settings-list">
+    <div class="setting-row"><span>Som</span>${toggle('sound', ui.sound)}</div>
+    ${slider('effectsVolume', 'Volume dos efeitos')}
+    ${slider('musicVolume', 'Volume da música', 'A música chega com os arquivos de som.')}
+    <div class="setting-row"><span>Velocidade ao começar uma fase</span><div class="setting-choice">${[1, 2].map(speed => `<button class="${settings.defaultSpeed === speed ? 'on' : ''}" data-action="setting-speed" data-value="${speed}">${speed}×</button>`).join('')}</div></div>
+    <div class="setting-row"><span>Números de dano</span>${toggle('damageNumbers', settings.damageNumbers)}</div>
+  </div><button class="primary-button" data-action="close-modal">Pronto ${icon('check', 16)}</button>`, 'settings-modal');
 }
 
 // How close the guaranteed legendary pull is.
@@ -285,9 +350,18 @@ function renderDynamic() {
   const towerMarkup = s.towers.map(tower => {
     // Chibi heroes are taller than the pixel drawings, so they get a slightly bigger frame.
     const [w, h] = heroArt(tower.hero) ? [64, 75] : [52, 61];
-    return `<g class="map-tower ${tower.id === ui.selectedTower ? 'chosen' : ''}" data-action="select-tower" data-id="${tower.id}" role="button" tabindex="0" aria-label="${tower.hero.name}, nível ${tower.level}"><ellipse cx="${tower.x}" cy="${tower.y + 3}" rx="19" ry="10" fill="${tower.hero.color}" opacity=".4"/><svg x="${tower.x - w / 2}" y="${tower.y + 6 - h}" width="${w}" height="${h}" viewBox="0 0 120 140">${portrait(tower.hero, 'tower').replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')}</svg><rect x="${tower.x - 13}" y="${tower.y + 10}" width="26" height="13" rx="0" fill="#182820" stroke="#c4cba6" stroke-width=".8"/><text x="${tower.x}" y="${tower.y + 20}" text-anchor="middle">${tower.level}</text><rect x="${tower.x - 25}" y="${tower.y + 6 - h}" width="50" height="${h + 19}" fill="transparent" pointer-events="all"/></g>`;
+    return `<g class="map-tower ${tower.id === ui.selectedTower ? 'chosen' : ''}" data-action="select-tower" data-id="${tower.id}" role="button" tabindex="0" aria-label="${tower.hero.name}, nível ${tower.level}"><ellipse cx="${tower.x}" cy="${tower.y + 3}" rx="19" ry="10" fill="${tower.hero.color}" opacity=".4"/><g class="tower-body"><svg x="${tower.x - w / 2}" y="${tower.y + 6 - h}" width="${w}" height="${h}" viewBox="0 0 120 140">${portrait(tower.hero, 'tower').replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')}</svg></g><rect x="${tower.x - 13}" y="${tower.y + 10}" width="26" height="13" rx="0" fill="#182820" stroke="#c4cba6" stroke-width=".8"/><text x="${tower.x}" y="${tower.y + 20}" text-anchor="middle">${tower.level}</text><rect x="${tower.x - 25}" y="${tower.y + 6 - h}" width="50" height="${h + 19}" fill="transparent" pointer-events="all"/></g>`;
   }).join('');
   if (towerMarkup !== lastTowerMarkup) { document.querySelector('#tower-layer').innerHTML = towerMarkup; lastTowerMarkup = towerMarkup; }
+  // A short hop each time a tower attacks: the class is taken off and put back so the animation starts again.
+  for (const id of strikingTowers) {
+    const body = document.querySelector(`#tower-layer [data-id="${id}"] .tower-body`);
+    if (!body) continue;
+    body.classList.remove('striking');
+    body.getBoundingClientRect();
+    body.classList.add('striking');
+  }
+  strikingTowers.clear();
   // The squad bar shows who is already on the map; refresh it only when that changes.
   const squadGrid = document.querySelector('.squad-section .squad-grid');
   const squadMarkup = squadGrid ? renderSquad() : '';
@@ -296,7 +370,8 @@ function renderDynamic() {
     + s.enemies.map(enemy => renderEnemy(enemy, ui.stage, { hit: enemyHitEffect(enemyEffects, enemy) })).join('');
   document.querySelector('#projectile-layer').innerHTML = s.projectiles.map(renderProjectile).join('');
   const effects = document.querySelector('#effect-layer');
-  if (effects) effects.innerHTML = areaEffects.map(effect => { const t = effect.age / effect.life; return `<circle cx="${effect.x}" cy="${effect.y}" r="${(effect.radius * (.55 + .45 * t)).toFixed(1)}" fill="${effect.color}" fill-opacity="${(.22 * (1 - t)).toFixed(3)}" stroke="${effect.color}" stroke-opacity="${(.8 * (1 - t)).toFixed(3)}" stroke-width="2"/>`; }).join('');
+  if (effects) effects.innerHTML = areaEffects.map(effect => { const t = effect.age / effect.life; return `<circle cx="${effect.x}" cy="${effect.y}" r="${(effect.radius * (.55 + .45 * t)).toFixed(1)}" fill="${effect.color}" fill-opacity="${(.22 * (1 - t)).toFixed(3)}" stroke="${effect.color}" stroke-opacity="${(.8 * (1 - t)).toFixed(3)}" stroke-width="2"/>`; }).join('')
+    + damageNumbers.map(number => { const t = number.age / number.life; return `<text class="damage-number" x="${number.x.toFixed(1)}" y="${(number.y - 20 * t).toFixed(1)}" font-size="${number.size}" fill="${number.color}" opacity="${(t < .6 ? 1 : (1 - t) / .4).toFixed(2)}" text-anchor="middle">${number.text}</text>`; }).join('');
 }
 
 function updateHud(force = false) {
@@ -331,9 +406,10 @@ function updateHud(force = false) {
 
 function resetBattle(stage = ui.stage, mode = ui.mode) {
   if (flushDaily()) persist();
+  ui.speed = settings.defaultSpeed;
   dailySent = { kills: 0, skills: 0, upgrades: 0, bosses: 0 };
   ui.stage = stage; ui.mode = mode === 'challenge' && challengeOpen(profile, stage) ? 'challenge' : 'normal'; ui.selectedTower = null; ui.paused = false; ui.reward = null;
-  enemyEffects = emptyEnemyEffects(); defeatedEnemies = []; victoryPending = false;
+  enemyEffects = emptyEnemyEffects(); defeatedEnemies = []; victoryPending = false; damageNumbers = []; areaEffects = [];
   engine = makeEngine(); engine.setSpeed(ui.speed); render();
 }
 
@@ -385,7 +461,7 @@ function victoryStarsBlock() {
 }
 
 function showResult(victory) {
-  showModal(`<div class="result-icon ${victory ? '' : 'defeat'}">${icon(victory ? 'trophy' : 'shield', 38)}</div><span class="eyebrow">${victory ? 'O DAO RECONHECE SUA FORÇA' : 'TODA QUEDA ENSINA'}</span><h2 id="modal-title">${victory ? 'O território está a salvo.' : 'Seu caminho continua.'}</h2><p class="modal-description">${victory ? `${escapeText(stageInfo().name)} foi protegido e ${escapeText(stageInfo().enemies.boss)} caiu. Seus cultivadores conquistaram uma nova vitória.` : 'Os invasores passaram pela sua defesa. Repense as posições e cultive seu poder entre as ondas.'}</p>${victory ? victoryStarsBlock() : ''}<div class="result-stats"><span><b>${engine.state.kills}</b>inimigos derrotados</span><span><b>${engine.state.wave}/${engine.state.totalWaves}</b>ondas enfrentadas</span></div>${victory ? `<div class="victory-reward">${icon('gem', 26)}<div><b>+${ui.reward?.reward || 0} Cristais do Dao</b><span>${ui.reward?.firstChallenge ? 'Recompensa do primeiro desafio vencido' : ui.reward?.firstClear ? 'Recompensa de primeira conclusão' : 'Recompensa de nova conclusão'}</span></div></div><button class="primary-button" data-action="result-next">${ui.stage < STAGES.length ? 'Seguir para a próxima fase' : 'Escolher uma nova jornada'} ${icon('arrowRight', 16)}</button><button class="text-button" data-action="result-recruit">Visitar o pavilhão de recrutamento</button>` : `<button class="primary-button" data-action="retry">${icon('refresh', 16)} Tentar novamente</button>`}`, 'result-modal');
+  showModal(`<div class="result-icon ${victory ? '' : 'defeat'}">${icon(victory ? 'trophy' : 'shield', 38)}</div><span class="eyebrow">${victory ? 'O DAO RECONHECE SUA FORÇA' : 'TODA QUEDA ENSINA'}</span><h2 id="modal-title">${victory ? 'O território está a salvo.' : 'Seu caminho continua.'}</h2><p class="modal-description">${victory ? `${escapeText(stageInfo().name)} foi protegido e ${escapeText(stageInfo().enemies.boss)} caiu. Seus cultivadores conquistaram uma nova vitória.` : 'Os invasores passaram pela sua defesa. Repense as posições e cultive seu poder entre as ondas.'}</p>${victory ? victoryStarsBlock() : ''}${matchSummary()}<div class="result-stats"><span><b>${engine.state.kills}</b>inimigos derrotados</span><span><b>${engine.state.wave}/${engine.state.totalWaves}</b>ondas enfrentadas</span></div>${victory ? `<div class="victory-reward">${icon('gem', 26)}<div><b>+${ui.reward?.reward || 0} Cristais do Dao</b><span>${ui.reward?.firstChallenge ? 'Recompensa do primeiro desafio vencido' : ui.reward?.firstClear ? 'Recompensa de primeira conclusão' : 'Recompensa de nova conclusão'}</span></div></div><button class="primary-button" data-action="result-next">${ui.stage < STAGES.length ? 'Seguir para a próxima fase' : 'Escolher uma nova jornada'} ${icon('arrowRight', 16)}</button><button class="text-button" data-action="result-recruit">Visitar o pavilhão de recrutamento</button>` : `<button class="primary-button" data-action="retry">${icon('refresh', 16)} Tentar novamente</button>`}`, 'result-modal');
 }
 
 function starPanel(id, owned) {
@@ -418,7 +494,9 @@ function doSummon(count) {
   const result = summon(profile, count);
   if (!result.ok) return toast(result.reason || 'Cristais insuficientes. Conclua fases para ganhar mais.');
   const before = new Set(profile.owned);
+  const ready = readyAchievements();
   profile = recordDaily(result.profile, today(), { summons: count }); engine.setHeroes(squadHeroes()); persist(); sound('victory'); render();
+  announceAchievements(ready);
   showModal(`<span class="eyebrow">O DESTINO FOI TRAÇADO</span><h2 id="modal-title">${count === 1 ? 'Um novo encontro.' : 'Novos caminhos se abrem.'}</h2><p class="modal-description">${count === 1 ? 'Um cultivador respondeu ao seu chamado.' : 'Dez cultivadores responderam ao seu chamado.'}</p><div class="summon-results ${count > 1 ? 'many' : ''}">${result.heroes.map((hero, i) => { const r = rarityOf(hero); const fresh = !before.has(hero.id); before.add(hero.id); return `<div class="summon-result-card" style="--hero-color:${r.color};--delay:${i * 70}ms"><div>${portrait(hero)}<span class="result-rarity">${r.name}</span><span class="new-badge ${fresh ? '' : 'fragment-badge'}">${fresh ? 'NOVO' : `+${FRAGMENTS_PER_COPY} FRAGMENTOS`}</span>${result.guaranteed?.[i] ? '<span class="pity-badge">GARANTIDO</span>' : ''}</div><h3>${hero.name}</h3><p>${hero.title}</p></div>`; }).join('')}</div><button class="primary-button" data-action="close-modal">Receber cultivadores ${icon('check', 17)}</button><span class="summon-result-note">Heróis novos entram no esquadrão se houver vaga. Repetidos viram fragmentos para elevar estrelas em Meus heróis.</span>`, `summon-modal ${count > 1 ? 'wide-modal' : ''}`);
 }
 
@@ -434,7 +512,9 @@ function activate(action, el) {
   if (action === 'talent-up') {
     const result = raiseTalent(profile, el.dataset.id);
     if (!result.ok) return toast(result.reason);
+    const ready = readyAchievements();
     profile = result.profile; persist(); sound('victory'); render();
+    announceAchievements(ready);
     toast(`${TALENTS.find(t => t.id === el.dataset.id).name} chegou ao nível ${result.level}. Vale a partir da próxima partida.`);
   }
   if (action === 'talent-reset') {
@@ -446,10 +526,27 @@ function activate(action, el) {
   if (action === 'claim-mission') {
     const result = claimDaily(profile, today(), el.dataset.id);
     if (!result.ok) return toast(result.reason);
+    const ready = readyAchievements();
     profile = result.profile; persist(); sound('victory'); render();
     toast(result.bonus ? `+${result.reward} cristais, com o bônus de todas as missões do dia!` : `+${result.reward} cristais.`);
+    announceAchievements(ready);
   }
-  if (action === 'sound') { ui.sound = !ui.sound; render(); if (ui.sound) sound(); }
+  if (action === 'claim-achievement') {
+    const result = claimAchievement(profile, el.dataset.id);
+    if (!result.ok) return toast(result.reason);
+    profile = result.profile; persist(); sound('victory'); render();
+    toast(`+${result.reward} cristais pela conquista.`);
+  }
+  if (action === 'sound') { ui.sound = !ui.sound; settings.sound = ui.sound; saveSettings(settings); render(); if (ui.sound) sound(); }
+  if (action === 'settings') showSettings();
+  if (action === 'setting-toggle') {
+    const key = el.dataset.key;
+    if (key === 'sound') { ui.sound = !ui.sound; settings.sound = ui.sound; } else settings[key] = !settings[key];
+    if (key === 'damageNumbers' && !settings.damageNumbers) damageNumbers = [];
+    saveSettings(settings); render(); showSettings();
+    if (key === 'sound' && ui.sound) sound();
+  }
+  if (action === 'setting-speed') { settings.defaultSpeed = Number(el.dataset.value) === 2 ? 2 : 1; saveSettings(settings); showSettings(); }
   if (action === 'stages') showStages();
   if (action === 'stage-world') showStages(Number(el.dataset.id));
   if (action === 'choose-stage') { closeModal(); ui.view = 'defense'; resetBattle(Number(el.dataset.id), 'normal'); }
@@ -479,8 +576,10 @@ function activate(action, el) {
   if (action === 'star-up') {
     const id = el.dataset.id; const result = raiseStar(profile, id);
     if (!result.ok) return toast(result.reason);
+    const ready = readyAchievements();
     profile = result.profile; engine.setHeroes(squadHeroes()); persist(); sound('victory');
     render(); showHero(id);
+    announceAchievements(ready);
     const name = heroById(id).name;
     toast(result.stars % STARS_PER_TIER === 0
       ? `${name} completou as estrelas de ${starTier(result.stars - 1).name}! As próximas são de ${starTier(result.stars).name}.`
@@ -546,6 +645,15 @@ document.addEventListener('keydown', event => {
   if (event.key === 'p' || event.key === 'P') activate('pause', document.body);
   if (event.key === 'Enter' && event.target.matches('[role="button"][data-action]')) activate(event.target.dataset.action, event.target);
 });
+// The volume sliders of the settings window.
+document.addEventListener('input', event => {
+  const key = event.target.dataset?.setting;
+  if (!key) return;
+  settings[key] = Number(event.target.value);
+  document.querySelector(`#setting-${key}`)?.replaceChildren(`${settings[key]}%`);
+  saveSettings(settings);
+});
+document.addEventListener('change', event => { if (event.target.dataset?.setting === 'effectsVolume') sound(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && inBattle()) { ui.paused = true; updateHud(true); } });
 document.addEventListener('error', event => {
   if (event.target.classList?.contains('enemy-rig-piece')) {
@@ -562,6 +670,8 @@ function frame(now) {
     defeatedEnemies = [];
     for (const effect of areaEffects) effect.age += dt * engine.state.speed;
     areaEffects = areaEffects.filter(effect => effect.age < effect.life);
+    for (const number of damageNumbers) number.age += dt * engine.state.speed;
+    damageNumbers = damageNumbers.filter(number => number.age < number.life);
     if (victoryPending && !enemyEffects.deaths.length) { victoryPending = false; render(); showResult(true); }
   }
   if (now - lastPaint > 40 && ui.view === 'defense') { renderDynamic(); updateHud(); lastPaint = now; }

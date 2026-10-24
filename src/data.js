@@ -207,5 +207,28 @@ export const DAILY_MISSIONS = [
 ];
 export const DAILY = Object.freeze({ count: 3, allDoneBonus: 50 });
 
+// Achievements: each one is reached when its counter gets to the goal, and pays its reward once (src/profile.js).
+// type: cleared (stage cleared), perfectStages (stages with 3 stars), perfectWorld (every stage of a world with 3 stars),
+// challenges, summons, collection (heroes recruited), rarity (a hero of this rarity or better), heroStars (best stars of
+// a hero), kills, bosses, skills, missions (lifetime counters), talentLevels (talent levels learned).
+export const ACHIEVEMENTS = [
+  { id: 'primeiro-passo', name: 'Primeiro passo', description: 'Vença a fase 1.', type: 'cleared', goal: 1, reward: 50 },
+  { id: 'apice-mundo-inicial', name: 'Ápice do Mundo Inicial', description: 'Vença a fase 12.', type: 'cleared', goal: 12, reward: 300 },
+  { id: 'senhor-tong-xuan', name: 'Senhor de Tong Xuan', description: 'Vença a fase 24.', type: 'cleared', goal: 24, reward: 600 },
+  { id: 'defesa-perfeita', name: 'Defesa perfeita', description: 'Conquiste 3 estrelas em uma fase.', type: 'perfectStages', goal: 1, reward: 50 },
+  { id: 'mestre-mundo-inicial', name: 'Mestre do Mundo Inicial', description: 'Conquiste 3 estrelas nas 12 fases do Mundo Inicial.', type: 'perfectWorld', goal: 1, reward: 300 },
+  { id: 'desafiante', name: 'Desafiante', description: 'Vença um desafio.', type: 'challenges', goal: 1, reward: 100 },
+  { id: 'senhor-dos-desafios', name: 'Senhor dos desafios', description: 'Vença 12 desafios.', type: 'challenges', goal: 12, reward: 400 },
+  { id: 'recrutador', name: 'Recrutador', description: 'Faça 50 invocações.', type: 'summons', goal: 50, reward: 100 },
+  { id: 'colecionador', name: 'Colecionador', description: 'Recrute os 14 heróis.', type: 'collection', goal: 14, reward: 500 },
+  { id: 'encontro-lendario', name: 'Encontro lendário', description: 'Recrute um herói Lendário ou melhor.', type: 'rarity', goal: 'legendary', reward: 100 },
+  { id: 'ascensao', name: 'Ascensão', description: 'Eleve um herói a 5 estrelas.', type: 'heroStars', goal: 5, reward: 150 },
+  { id: 'cacador', name: 'Caçador de invasores', description: 'Derrote 1.000 inimigos.', type: 'kills', goal: 1000, reward: 100 },
+  { id: 'matador-de-chefes', name: 'Matador de chefes', description: 'Derrote 25 chefes.', type: 'bosses', goal: 25, reward: 150 },
+  { id: 'mestre-das-habilidades', name: 'Mestre das habilidades', description: 'Use 100 habilidades.', type: 'skills', goal: 100, reward: 100 },
+  { id: 'cultivo-profundo', name: 'Cultivo profundo', description: 'Aprenda 10 níveis de talento.', type: 'talentLevels', goal: 10, reward: 100 },
+  { id: 'disciplina', name: 'Disciplina diária', description: 'Receba 10 missões do dia.', type: 'missions', goal: 10, reward: 150 },
+];
+
 // Pity: after every - 1 pulls without a hero of this rarity or better, the next pull is guaranteed to bring one.
 export const GACHA_PITY = Object.freeze({ every: 50, rarity: 'legendary' });

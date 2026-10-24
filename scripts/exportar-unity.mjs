@@ -7,7 +7,7 @@ import { mkdir, readdir, rm, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { HEROES, RARITIES, STAGES, WORLD, WORLDS, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, ELEMENTS, TRAITS, PROGRESSION, TALENTS, DAILY_MISSIONS, DAILY } from '../src/data.js';
+import { HEROES, RARITIES, STAGES, WORLD, WORLDS, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, ELEMENTS, TRAITS, PROGRESSION, TALENTS, DAILY_MISSIONS, DAILY, ACHIEVEMENTS } from '../src/data.js';
 import { BALANCE, GameEngine, enemyKind, stageDifficulty } from '../src/engine.js';
 import { DEFAULT_MAP, hasPaintedMap, mapForStage, pointOnPath, stageKey } from '../src/maps.js';
 import { FIRST_TIER_COSTS, FRAGMENTS_PER_COPY, STARS_PER_TIER, STAR_BONUS, STAR_TIERS, nextStarCost, withStars } from '../src/stars.js';
@@ -99,6 +99,9 @@ await json('regras.json', {
     pick: 'seed = 7; for each UTF-16 code unit c of the day (YYYY-MM-DD, local time): seed = (seed * 31 + c) % 2147483647; then count times: seed = (seed * 48271) % 2147483647 and take pool[seed % pool.length] out of the pool (the missions in order)',
     claim: 'a finished mission pays its reward once; the last of the day also pays allDoneBonus; progress starts over when the day changes',
   },
+  // Achievements: reached when the counter of their type gets to the goal (see the comment above ACHIEVEMENTS in
+  // src/data.js); lifetime counters = daily counters plus "missions"; each reward is paid once.
+  achievements: ACHIEVEMENTS,
   progression: {
     startingProfile: createProfile(),
     firstClearReward: '150 + (stage - 1) * 25', repeatReward: PROGRESSION.repeatReward, unlock: 'sequential',
@@ -143,6 +146,9 @@ function scriptedMatch(stage, stars, lineup, { mode = 'normal', modifiers = null
       }
     }
     waves.push({ wave, frames, skills, status: game.state.status, kills: game.state.kills, qi: game.state.qi, lives: game.state.lives,
+      // Damage and kills of each hero so far, in lineup order (the match summary).
+      heroDamage: lineup.map(([id]) => game.state.heroStats[id]?.damage ?? 0),
+      heroKills: lineup.map(([id]) => game.state.heroStats[id]?.kills ?? 0),
       towerLevels: game.state.towers.map(tower => tower.level) });
   }
   return { stage, stars, mode, modifiers, lineup: lineup.map(([hero, pad]) => ({ hero, pad })), dt: 1 / 30,

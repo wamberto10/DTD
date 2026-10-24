@@ -47,9 +47,13 @@ O Vite informa o endereço local no terminal. Para gerar uma versão estática d
 4. Cada eliminação concede Qi. Clique em uma torre para ver seu alcance e melhorá-la até o nível 5. Dispensar uma torre recupera 70% do Qi investido.
 5. Durante as ondas, a **habilidade** de cada herói em campo carrega. Quando o cartão dele mostra "Habilidade pronta", clique no cartão (ou no botão da torre) para usá-la.
 6. Proteja o local da fase durante as cinco ondas, incluindo o chefe final. Uma vitória libera a próxima fase, concede cristais e até **3 estrelas**.
-7. Visite **Recrutamento** para invocar heróis, **Meus heróis** para conferir a coleção e elevar as estrelas dos heróis com os fragmentos, e **Cultivo** para os talentos e as missões do dia.
+7. Visite **Recrutamento** para invocar heróis, **Meus heróis** para conferir a coleção e elevar as estrelas dos heróis com os fragmentos, e **Cultivo** para os talentos, as missões do dia e as conquistas.
 
 **Espaço** inicia a onda (ou pula a espera), **P** ou o botão ao lado da velocidade pausa a partida, **2** alterna a velocidade e **Esc** fecha detalhes. A pausa também para a contagem entre ondas. A partida pausa sozinha ao sair da defesa ou ocultar a aba.
+
+Durante a batalha, cada golpe mostra o **dano** subindo do inimigo (dourado e maior no crítico, menor e na cor do elemento na queimadura e no veneno, azul quando só o escudo foi atingido), e a torre dá um pequeno salto a cada ataque. O cartão da torre mostra o dano e os abates do herói na fase. No fim da fase, a janela de resultado traz **quem segurou a linha**: o dano, a parte do total e os abates de cada herói.
+
+A engrenagem no topo abre as **Configurações**: som ligado ou desligado, volume dos efeitos, volume da música (para quando os arquivos de música chegarem), velocidade ao começar uma fase (1× ou 2×) e números de dano. Elas ficam salvas neste navegador, separadas do progresso. Os prompts para gerar as músicas e os efeitos em outra IA estão em [docs/PROMPTS_SOM.md](docs/PROMPTS_SOM.md); até lá, o jogo usa bipes simples.
 
 ## Combate
 
@@ -88,7 +92,9 @@ O sorteio escolhe primeiro a raridade e depois um dos dois heróis dela, com cha
 
 **Cultivo.** As estrelas do Dao (as das fases mais as dos desafios) compram **talentos permanentes**: Reserva de Qi (+10 Qi inicial por nível), Muralha do Dao (+1 vida), Fúria Marcial (+3% de dano), Meditação Profunda (habilidades 8% mais rápidas) e Economia do Qi (melhorias 4% mais baratas), até o nível 5. O nível N custa N estrelas, e **Redistribuir estrelas** devolve todas para escolher de novo. A mesma página traz **3 missões do dia** (vencer fases, derrotar inimigos e chefes, usar habilidades, melhorar torres, recrutar), iguais para todos na mesma data, que renovam à meia-noite; cada uma rende de 30 a 70 cristais, e receber as três rende mais 50.
 
-Heróis, cristais, fases concluídas, estrelas, desafios, talentos e missões do dia ficam salvos no `localStorage` deste navegador. Qi, torres, melhorias e partidas em andamento são temporários e reiniciam ao trocar de fase, reiniciar ou recarregar. Não há conta, servidor de progressão ou sincronização entre dispositivos.
+**Conquistas.** Na mesma página, 16 conquistas acompanham a jornada (vencer as fases 1, 12 e 24, 3 estrelas, desafios, invocações, coleção, um herói Lendário, 5 estrelas num herói, inimigos e chefes derrotados, habilidades usadas, talentos e missões do dia). Cada uma rende de 50 a 600 cristais, recebidos uma vez; um aviso aparece quando uma nova é alcançada.
+
+Heróis, cristais, fases concluídas, estrelas, desafios, talentos, missões do dia, conquistas e os totais da jornada ficam salvos no `localStorage` deste navegador. Qi, torres, melhorias e partidas em andamento são temporários e reiniciam ao trocar de fase, reiniciar ou recarregar. Não há conta, servidor de progressão ou sincronização entre dispositivos.
 
 ## Validação
 
@@ -97,7 +103,7 @@ npm test
 npm run build
 ```
 
-Os testes de lógica verificam combate, Qi, melhorias, vitória e derrota, as 24 fases com os dados reais dos heróis, as plataformas de cada cenário, probabilidades e garantia do recrutamento, recompensas, estrelas e desafio, talentos, missões do dia e persistência.
+Os testes de lógica verificam combate, Qi, melhorias, vitória e derrota, as 24 fases com os dados reais dos heróis, as plataformas de cada cenário, probabilidades e garantia do recrutamento, recompensas, estrelas e desafio, talentos, missões do dia, conquistas, o resumo de dano por herói, as configurações e persistência.
 
 Há também testes completos de navegador. Com o servidor de desenvolvimento ativo, Python Playwright e Chromium disponíveis:
 
@@ -142,7 +148,8 @@ O resultado fica em `unity-export/`, fora do git, e pode ser gerado de novo a qu
 - `src/chibi-art.js` e `src/art-manifest.js`: arte chibi de heróis, inimigos e cenários.
 - `scripts/preparar-arte.mjs`: gera `public/arte/` a partir de `arte/ia/`.
 - `scripts/exportar-unity.mjs`: gera o pacote `unity-export/` para o Unity.
-- `src/profile.js`: gacha com garantia, recompensas, estrelas das fases, desafio, talentos, missões do dia e persistência local.
+- `src/profile.js`: gacha com garantia, recompensas, estrelas das fases, desafio, talentos, missões do dia, conquistas e persistência local.
+- `src/settings.js`: configurações (som, volumes, velocidade inicial, números de dano), salvas à parte.
 - `src/art.js`: exportações de arte e ícones da interface.
 - `src/pixel-terrain.js`: cenário em pixels e as seis paletas das fases sem pintura.
 - `src/pixel-portraits.js`: 14 heróis em pixels e variantes transparentes.

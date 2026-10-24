@@ -27,7 +27,7 @@ Unity faz melhor: animações, efeitos, partículas e builds para PC, navegador 
   - `dados/fases.json`: os mundos e as 24 fases com nome, reino, chefe, inimigos e suas habilidades, recompensa, cores do cenário
     feito em código e o caminho e as 9 plataformas de cada cenário.
   - `dados/regras.json`: todos os números e fórmulas (combate, elementos, habilidades dos inimigos, ondas, torres, estrelas,
-    recrutamento e garantia, esquadrão, progresso, estrelas das fases e desafio, talentos e missões do dia).
+    recrutamento e garantia, esquadrão, progresso, estrelas das fases e desafio, talentos, missões do dia e conquistas).
   - `dados/casos-de-teste.json`: resultados do motor atual (caminhos, ondas, níveis das torres, estrelas e 5 partidas
     completas) para conferir, número por número, que a versão em C# joga igual.
   - `arte/`: heróis (512 px), inimigos (384 px), chefes (512 px) e cenários (2000 × 1200) em **PNG**, porque o Unity não importa WebP.

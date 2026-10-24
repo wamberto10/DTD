@@ -408,3 +408,49 @@
 .world-tab{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 8px;border:1px solid #4b5e44;background:#22302a;color:#c8cdb0;font-size:10px}
 .world-tab small{font-size:8px;color:#97a28a}
 .world-tab.active{border-color:#bdc58e;background:#35472e;color:#f1ecd0}
+
+/* Combat feedback: damage numbers, the tower strike and the match summary */
+.damage-number{font-family:var(--sans, inherit);font-weight:800;paint-order:stroke;stroke:#140f0a;stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.tower-body{transform-box:fill-box;transform-origin:50% 100%}
+.tower-body.striking{animation:tower-strike .24s ease-out}
+@keyframes tower-strike{0%{transform:scale(1) translateY(0)}35%{transform:scale(1.09,1.05) translateY(-4px);filter:brightness(1.35)}100%{transform:scale(1) translateY(0)}}
+.match-summary{margin:4px 0 14px;padding:10px 12px;border:1px solid #3b4639;background:#1c241e;text-align:left}
+.match-summary .eyebrow{display:block;margin-bottom:6px}
+.summary-row{display:grid;grid-template-columns:92px 1fr 52px;grid-template-rows:auto auto;column-gap:8px;align-items:center;padding:4px 0}
+.summary-name{display:flex;gap:4px;align-items:center;font-size:9px;color:#dcd8c6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.summary-row.mvp .summary-name{color:#e9c46f}
+.summary-bar{height:6px;background:#2a3329}
+.summary-bar i{display:block;height:6px}
+.summary-row b{font-size:9px;font-weight:600;color:#ece6c9;text-align:right}
+.summary-row small{grid-column:2 / 4;font-size:7px;color:#8f9a86}
+.match-stat b{font-size:9px}
+@media (prefers-reduced-motion: reduce){.tower-body.striking{animation:none}}
+
+/* Settings window */
+.settings-list{display:flex;flex-direction:column;gap:2px;margin:18px 0;text-align:left}
+.setting-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #2f3a31;font-size:10px;color:#dcd8c6}
+.setting-row>span{display:flex;flex-direction:column;gap:3px}
+.setting-row small{font-size:7px;color:#8f9a86}
+.setting-row input[type=range]{width:150px;accent-color:#c4d48d}
+.setting-row b{min-width:34px;text-align:right;font-size:9px;font-weight:600;color:#ece6c9}
+.setting-toggle{grid-column:2 / 4;justify-self:end;min-width:92px;padding:7px 10px;font-size:9px;border:1px solid #4b5e44;background:#22302a;color:#a9b39a}
+.setting-toggle.on{background:#c4d48d;border-color:#e6efc0;color:#24301f}
+.setting-choice{grid-column:2 / 4;justify-self:end;display:flex;gap:4px}
+.setting-choice button{min-width:44px;padding:7px 10px;font-size:9px;border:1px solid #4b5e44;background:#22302a;color:#a9b39a}
+.setting-choice button.on{background:#c4d48d;border-color:#e6efc0;color:#24301f}
+/* Achievements on the Cultivo page */
+.achievement-panel{margin-top:18px;padding:20px;border:1px solid #34323e;background:#1b1b24}
+.achievement-panel .section-heading{display:flex;justify-content:space-between;align-items:center}
+.achievement-panel h2{font-size:12px;color:#c9c4d0;font-weight:500}
+.achievement-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:14px}
+.achievement-card{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:12px;border:1px solid #3a3a46;background:#22222c}
+.achievement-card.done{border-color:#8d6d3c;background:#2b2619}
+.achievement-card.claimed{opacity:.6}
+.achievement-icon{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #4a4656;color:#8d889a}
+.achievement-card.done .achievement-icon{color:#e9c46f;border-color:#8d6d3c}
+.achievement-card.claimed .achievement-icon{color:#9fc48b;border-color:#56714a}
+.achievement-text{min-width:0}
+.achievement-text strong{display:block;font-size:9px;font-weight:600;color:#ece6c9}
+.achievement-text span{display:block;font-size:7px;color:#9b96a6;margin-top:3px}
+.achievement-text small{display:block;font-size:7px;color:#8d889a;margin-top:4px}
+.achievement-button{font-size:9px;padding:7px 9px;min-width:70px;justify-content:center}

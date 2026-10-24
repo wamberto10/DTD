@@ -125,6 +125,8 @@ export class GameEngine {
       nextWaveIn: null,
       // Blessing skills: every tower attacks faster for a while.
       buffRemaining: 0, buffAttackSpeed: 0,
+      // Damage dealt and enemies defeated by each hero in this match (kept after a tower is dismissed).
+      heroStats: {},
     };
     this._nextId = 1;
     this._spawnQueue = [];
@@ -474,8 +476,9 @@ export class GameEngine {
     const element = tower.hero.element;
     const crit = element === 'physical' && tower.hits % elements.physical.critEvery === 0;
     const damage = crit ? Math.round(tower.damage * elements.physical.critMultiplier) : tower.damage;
+    this._emit('attack', { tower, target });
     this._shot(tower, tower, target, crit);
-    this._hit(target, damage, tower, false);
+    this._hit(target, damage, tower, false, crit);
     if (target.hp > 0) this._afflict(target, tower);
     // Area heroes also hurt the enemies around the target (flying enemies are out of reach of the blast).
     const splash = tower.hero.splash;
@@ -532,17 +535,24 @@ export class GameEngine {
     if (enemy.poisonRemaining === 0) { enemy.poisonStacks = 0; enemy.poisonDamage = 0; }
   }
 
-  /** Every bit of damage goes through here. Returns the damage dealt. */
-  _hit(enemy, amount, tower, overTime) {
+  /** Every bit of damage goes through here. Returns the damage taken from the enemy's health. */
+  _hit(enemy, amount, tower, overTime, crit = false) {
     if (enemy.hp <= 0 || amount <= 0) return 0;
+    let absorbed = 0;
     // Void pierces armor and shields; burn and poison are not stopped by armor.
     if (!(tower && tower.hero.element === 'void')) {
       if (enemy.armor && !overTime) amount = Math.round(amount * (1 - BALANCE.traits.armor.reduction));
       if (enemy.shield > 0) {
-        const absorbed = Math.min(enemy.shield, amount);
+        absorbed = Math.min(enemy.shield, amount);
         enemy.shield -= absorbed;
         amount -= absorbed;
       }
+    }
+    // What the hit really took (shield plus health, without the overkill), for the match summary.
+    const dealt = absorbed + Math.max(0, Math.min(amount, enemy.hp));
+    if (dealt > 0) {
+      if (tower) this._credit(tower, dealt, 0);
+      this._emit('damage', { enemy, amount: absorbed + Math.max(0, amount), tower, crit, overTime, shielded: amount <= 0 });
     }
     if (amount <= 0) return 0;
     enemy.hp -= amount;
@@ -550,8 +560,16 @@ export class GameEngine {
       this.state.qi += enemy.reward;
       this.state.kills++;
       if (enemy.kind === 'boss') this.state.bossKills++;
+      if (tower) this._credit(tower, 0, 1);
       this._emit('kill', { enemy, tower, reward: enemy.reward });
     }
     return amount;
+  }
+
+  /** Adds damage and kills to the hero's line of the match summary. */
+  _credit(tower, damage, kills) {
+    const stats = this.state.heroStats[tower.hero.id] ??= { damage: 0, kills: 0 };
+    stats.damage += damage;
+    stats.kills += kills;
   }
 }

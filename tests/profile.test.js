@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { HEROES, RARITIES, STAGES, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST } from '../src/data.js';
 import { createProfile, loadProfile, saveProfile, summon, grantVictory, raiseStar, toggleSquad, STORAGE_KEY, victoryStars, daoStars, challengeOpen, challengeReward, pullsToPity } from '../src/profile.js';
 import { GACHA_PITY, TALENTS, DAILY } from '../src/data.js';
-import { freeStars, raiseTalent, resetTalents, talentModifiers, talentBonus, dailyMissionIds, dailyMissions, recordDaily, claimDaily, DAILY_COUNTERS } from '../src/profile.js';
+import { freeStars, raiseTalent, resetTalents, talentModifiers, talentBonus, dailyMissionIds, dailyMissions, recordDaily, claimDaily, DAILY_COUNTERS, achievements, claimAchievement } from '../src/profile.js';
 import { FRAGMENTS_PER_COPY, STAR_BONUS, nextStarCost, starBonusPercent, starTier, withStars } from '../src/stars.js';
 
 function memoryStorage() {
@@ -366,4 +366,35 @@ test('daily missions count the day and pay once, with a bonus for all of them', 
   const storage = memoryStorage();
   saveProfile(profile, storage);
   assert.equal(loadProfile(storage).daily.claimed.length, DAILY.count);
+});
+
+test('achievements follow the journey and pay their reward once', () => {
+  let profile = createProfile();
+  assert.equal(achievements(profile).some(a => a.done), false, 'a new disciple has reached nothing yet');
+  profile = grantVictory(profile, 1, { lives: 20, maxLives: 20 }).profile;
+  const reached = achievements(profile).filter(a => a.done).map(a => a.id);
+  assert.deepEqual(reached, ['primeiro-passo', 'defesa-perfeita']);
+  const first = claimAchievement(profile, 'primeiro-passo');
+  assert.equal(first.ok, true);
+  assert.equal(first.profile.crystals, profile.crystals + first.reward);
+  assert.equal(claimAchievement(first.profile, 'primeiro-passo').ok, false, 'each reward is paid once');
+  assert.equal(claimAchievement(first.profile, 'cacador').ok, false, 'not reached yet');
+  // Lifetime counters come from what the matches report (the same counts as the daily missions).
+  profile = recordDaily(first.profile, '2026-10-23', { kills: 600 });
+  profile = recordDaily(profile, '2026-10-24', { kills: 500, bosses: 3 });
+  const hunter = achievements(profile).find(a => a.id === 'cacador');
+  assert.equal(hunter.done, true);
+  assert.equal(hunter.progress, 1000);
+  assert.equal(profile.lifetime.kills, 1100);
+  // Missions received count too.
+  const mission = dailyMissions(profile, '2026-10-24').find(m => m.done);
+  if (mission) assert.equal(claimDaily(profile, '2026-10-24', mission.id).profile.lifetime.missions, 1);
+  const storage = memoryStorage();
+  saveProfile(profile, storage);
+  const loaded = loadProfile(storage);
+  assert.deepEqual(loaded.achievements, ['primeiro-passo']);
+  assert.equal(loaded.lifetime.kills, 1100);
+  storage.setItem(STORAGE_KEY, JSON.stringify({ ...createProfile(), achievements: ['nao-existe', 'primeiro-passo'], lifetime: { kills: -5 } }));
+  assert.deepEqual(loadProfile(storage).achievements, ['primeiro-passo']);
+  assert.equal(loadProfile(storage).lifetime.kills, 0);
 });

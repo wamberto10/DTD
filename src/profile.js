@@ -1,4 +1,4 @@
-import { HEROES, RARITIES, STAGES, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, PROGRESSION, TALENTS, DAILY_MISSIONS, DAILY } from './data.js';
+import { HEROES, RARITIES, STAGES, WORLDS, SQUAD_SIZE, GACHA_COST, GACHA_TEN_COST, GACHA_PITY, PROGRESSION, TALENTS, DAILY_MISSIONS, DAILY, ACHIEVEMENTS } from './data.js';
 import { FRAGMENTS_PER_COPY, STAR_SAFETY_CAP, nextStarCost } from './stars.js';
 
 export const STORAGE_KEY = 'dtd-dao-profile-v1';
@@ -14,6 +14,9 @@ const validInteger = (value, maximum = 1_000_000_000) => Number.isSafeInteger(va
 // What the daily missions count.
 export const DAILY_COUNTERS = ['victories', 'kills', 'skills', 'perfect', 'bosses', 'upgrades', 'summons'];
 const emptyProgress = () => Object.fromEntries(DAILY_COUNTERS.map(key => [key, 0]));
+// Totals since the start of the journey (for the achievements): the daily counters plus missions received.
+export const LIFETIME_COUNTERS = [...DAILY_COUNTERS, 'missions'];
+const emptyLifetime = () => Object.fromEntries(LIFETIME_COUNTERS.map(key => [key, 0]));
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function createProfile() {
@@ -37,6 +40,9 @@ export function createProfile() {
     talents: Object.fromEntries(TALENTS.map(talent => [talent.id, 0])),
     // Progress of the daily missions of one day (YYYY-MM-DD) and the rewards already received.
     daily: { day: '', progress: emptyProgress(), claimed: [] },
+    // Totals since the start (enemies defeated, skills used...) and the achievements already received.
+    lifetime: emptyLifetime(),
+    achievements: [],
   };
 }
 
@@ -103,6 +109,10 @@ function normalizeProfile(input) {
     pity: validInteger(input.pity, GACHA_PITY.every - 1) ? input.pity : 0,
     talents,
     daily,
+    lifetime: Object.fromEntries(LIFETIME_COUNTERS.map(key => [key, validInteger(input.lifetime?.[key]) ? input.lifetime[key] : 0])),
+    achievements: Array.isArray(input.achievements)
+      ? [...new Set(input.achievements.filter(id => ACHIEVEMENTS.some(achievement => achievement.id === id)))]
+      : [],
   };
 }
 
@@ -182,11 +192,15 @@ export function recordDaily(profile, day, counts) {
   if (!DAY_PATTERN.test(day)) return current;
   const state = dayState(current, day);
   const progress = { ...state.progress };
+  const lifetime = { ...current.lifetime };
   for (const key of DAILY_COUNTERS) {
     const value = counts?.[key];
-    if (Number.isSafeInteger(value) && value > 0) progress[key] = Math.min(1_000_000, progress[key] + value);
+    if (Number.isSafeInteger(value) && value > 0) {
+      progress[key] = Math.min(1_000_000, progress[key] + value);
+      lifetime[key] = Math.min(1_000_000_000, lifetime[key] + value);
+    }
   }
-  return { ...current, daily: { day, progress, claimed: [...state.claimed] } };
+  return { ...current, daily: { day, progress, claimed: [...state.claimed] }, lifetime };
 }
 
 /** Receives the crystals of a completed mission; the last one of the day also pays the bonus. */
@@ -200,7 +214,65 @@ export function claimDaily(profile, day, missionId) {
   const claimed = [...state.claimed, missionId];
   const bonus = claimed.length === DAILY.count ? DAILY.allDoneBonus : 0;
   const reward = mission.reward + bonus;
-  return { ok: true, reward, bonus, profile: { ...current, crystals: current.crystals + reward, daily: { day, progress: { ...state.progress }, claimed } } };
+  return {
+    ok: true, reward, bonus,
+    profile: {
+      ...current, crystals: current.crystals + reward, daily: { day, progress: { ...state.progress }, claimed },
+      lifetime: { ...current.lifetime, missions: current.lifetime.missions + 1 },
+    },
+  };
+}
+
+// ---------- Achievements ----------
+
+/** Where the player stands on an achievement's counter (capped at the goal). */
+function achievementValue(current, achievement) {
+  const stars = Object.values(current.stageStars);
+  switch (achievement.type) {
+    case 'cleared': return current.completedStages.includes(achievement.goal) ? 1 : 0;
+    case 'perfectStages': return stars.filter(value => value === 3).length;
+    case 'perfectWorld': {
+      const world = WORLDS.find(item => item.id === achievement.goal);
+      const ids = STAGES.filter(stage => stage.world === world?.id).map(stage => stage.id);
+      return ids.length && ids.every(id => current.stageStars[id] === 3) ? 1 : 0;
+    }
+    case 'challenges': return current.challenges.length;
+    case 'summons': return current.totalSummons;
+    case 'collection': return current.owned.length;
+    case 'rarity': {
+      const least = RARITIES.findIndex(rarity => rarity.id === achievement.goal);
+      return current.owned.some(id => RARITIES.findIndex(rarity => rarity.id === HEROES.find(hero => hero.id === id).rarity) >= least) ? 1 : 0;
+    }
+    case 'heroStars': return Math.max(0, ...Object.values(current.stars));
+    case 'talentLevels': return Object.values(current.talents).reduce((sum, level) => sum + level, 0);
+    default: return current.lifetime[achievement.type] ?? 0;
+  }
+}
+
+/** The goal as a number: 1 for the yes-or-no achievements (a stage, a world, a rarity). */
+const achievementGoal = achievement => ['cleared', 'perfectWorld', 'rarity'].includes(achievement.type) ? 1 : achievement.goal;
+
+/** Every achievement with its progress, whether it was reached and whether its reward was received. */
+export function achievements(profile) {
+  const current = normalizeProfile(profile);
+  return ACHIEVEMENTS.map(achievement => {
+    const goal = achievementGoal(achievement);
+    const progress = Math.min(goal, achievementValue(current, achievement));
+    return { ...achievement, progress, target: goal, done: progress >= goal, claimed: current.achievements.includes(achievement.id) };
+  });
+}
+
+/** Receives the crystals of an achievement reached. */
+export function claimAchievement(profile, achievementId) {
+  const current = normalizeProfile(profile);
+  const achievement = achievements(current).find(item => item.id === achievementId);
+  if (!achievement) return { ok: false, reason: 'Conquista desconhecida.', profile: current };
+  if (achievement.claimed) return { ok: false, reason: 'Esta recompensa já foi recebida.', profile: current };
+  if (!achievement.done) return { ok: false, reason: `Ainda falta: ${achievement.description}`, profile: current };
+  return {
+    ok: true, reward: achievement.reward,
+    profile: { ...current, crystals: current.crystals + achievement.reward, achievements: [...current.achievements, achievementId] },
+  };
 }
 
 /** Pulls left until the guaranteed legendary hero (or better): 1 means the next pull. */
