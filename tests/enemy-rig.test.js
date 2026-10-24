@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ENEMY_RIGS } from '../src/enemy-rigs-manifest.js';
 import { renderEnemy } from '../src/pixel-units.js';
+import { ENEMY_SHEETS } from '../src/enemy-sheets-manifest.js';
+import { ART } from '../src/art-manifest.js';
 import {
   isEnemyRig, enemyRig, enemyRigPose, renderRigEnemy, disableEnemyRig,
   emptyEnemyEffects, advanceEnemyEffects, enemyHitEffect, enemyDeathProgress, ENEMY_DEATH_SECONDS,
@@ -145,12 +147,15 @@ test('rig piece URLs resolve embedded portable art', () => {
   }
 });
 
-test('the first imported enemy uses the rig; missing rigs retain painted and pixel fallbacks', () => {
+test('a walk sheet comes first, then the rig, then the painted picture and the pixel drawing', () => {
   assert.ok(ENEMY_RIGS.rigs.some(rig => rig.stage === 'f01' && rig.kind === 'normal' && isEnemyRig(rig)));
-  assert.match(renderEnemy(enemy, 1), /rigged-enemy/);
-  assert.match(renderEnemy(enemy, 2), /painted-enemy/);
+  // Enemies with a walk sheet (src/enemy-sheets-manifest.js) use it before the cut-out animation.
+  assert.match(renderEnemy(enemy, 1), ENEMY_SHEETS['f01-normal'] ? /sheet-enemy/ : /rigged-enemy/);
+  // A stage whose enemy has a painted picture, but neither a sheet nor a rig, keeps the picture.
+  const painted = Object.keys(ART.inimigos).map(key => Number(key.slice(1)))
+    .find(stage => { const key = `f${String(stage).padStart(2, '0')}`; return ART.inimigos[key]?.normal && !ENEMY_SHEETS[`${key}-normal`] && !enemyRig(stage, 'normal'); });
+  if (painted) assert.match(renderEnemy(enemy, painted), /painted-enemy/);
   assert.match(renderEnemy(enemy), /pixel-enemy/);
-  assert.match(renderEnemy({ ...enemy, kind: 'fast' }, 2), /painted-enemy/);
 });
 
 test('damage blinking is temporary and does not mutate simulation enemies or the previous effect snapshot', () => {
